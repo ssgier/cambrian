@@ -1,0 +1,40 @@
+dummyReal1:
+  type: real
+  min: 0.0
+  max: 100.0
+  scale: 3.0
+  init: 0.25
+  dist: exponential
+  optional: true
+dummyReal2:
+  type: real
+dummyInt:
+  type: int
+  min: 1
+  max: 20
+dummyBool:
+  type: bool
+dummyAnonMap:
+  type: anon map
+  valueType:
+    type: real
+  max: 10
+dummySub:
+  type: sub
+  optional: true
+  dummySubValue1:
+    type: real
+    optional: true
+  dummySubValue2:
+    type: real
+    init: 1.5
+dummyNestedAnonMap:
+  type: anon map
+  valueType:
+    dummyNestedInt:
+      type: int
+      dist: uniform
+      min: 1
+      max: 10
+    dummyNestedReal:
+      type: real

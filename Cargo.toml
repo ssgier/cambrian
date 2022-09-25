@@ -11,6 +11,9 @@ Asynchronous Adaptive Genetic Algorithm
 [dependencies]
 serde = { version = "1.0.145", features = ["derive"] }
 serde_json = "1.0.85"
+serde_yaml = "0.9.13"
 rand = "0.8.5"
 rand_distr = "0.4.3"
 futures = "0.3.24"
+thiserror = "1.0.35"
+float-cmp = "0.9.0"
