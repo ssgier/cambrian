@@ -1,74 +1,26 @@
+use crate::common_util::format_path;
+use crate::error::Error;
 use crate::spec::{IntProbDist, Node, RealProbDist, Spec};
 use std::collections::{HashMap, HashSet};
-use thiserror;
-
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("invalid yaml")]
-    InvalidYaml(#[from] serde_yaml::Error),
-    #[error("at path {path_hint:?}: yaml must be a map")]
-    YamlMustBeMap { path_hint: String },
-    #[error("at path {path_hint:?}: cannot parse attribute \"{attribute_name:?}\". Number probably too big")]
-    UnsignedIntConversionFailed {
-        path_hint: String,
-        attribute_name: String,
-    },
-    #[error("at path {path_hint:?}: attribute value of \"{attribute_name:?}\" must be {expected_type_hint:?}")]
-    InvalidAttributeValueType {
-        path_hint: String,
-        attribute_name: String,
-        expected_type_hint: String,
-    },
-    #[error(
-        "at path {path_hint:?}: attribute key \"{formatted_attribute_key:?}\" must be a string"
-    )]
-    InvalidAttributeKeyType {
-        path_hint: String,
-        formatted_attribute_key: String,
-    },
-    #[error("at path {path_hint:?}: unknown type name: {unknown_type_name:?}")]
-    UnknownTypeName {
-        path_hint: String,
-        unknown_type_name: String,
-    },
-    #[error("at path {path_hint:?}: unknown value \"{unknown_value:?}\" for probability distribution (\"prob_dist\")")]
-    UnknownProbDist {
-        path_hint: String,
-        unknown_value: String,
-    },
-    #[error("at path {path_hint:?}: initial value is not within bounds provided")]
-    InitNotWithinBounds { path_hint: String },
-    #[error("at path {path_hint:?}: mandatory attribute missing: {missing_attribute_name:?}")]
-    MandatoryAttributeMissing {
-        path_hint: String,
-        missing_attribute_name: String,
-    },
-    #[error("at path {path_hint:?}: unexpected attribute: {unexpected_attribute_name:?}")]
-    UnexpectedAttribute {
-        path_hint: String,
-        unexpected_attribute_name: String,
-    },
-    #[error("at path {path_hint:?}: sub must not be empty")]
-    EmptySub { path_hint: String },
-}
 
 pub fn from_yaml_str(yaml_str: &str) -> Result<Spec, Error> {
     let yaml_val: serde_yaml::Value = serde_yaml::from_str(yaml_str)?;
-    Ok(Spec(build_node(&yaml_val, &Vec::new())?))
+    let root_path = [];
+    Ok(Spec(build_node(&yaml_val, &root_path)?))
 }
 
-fn build_node(yaml_val: &serde_yaml::Value, path: &Vec<&str>) -> Result<Node, Error> {
+fn build_node(yaml_val: &serde_yaml::Value, path: &[&str]) -> Result<Node, Error> {
     let mapping = match yaml_val {
         serde_yaml::Value::Mapping(mapping) => mapping,
         _ => {
             return Err(Error::YamlMustBeMap {
-                path_hint: format_path(&path),
+                path_hint: format_path(path),
             })
         }
     };
 
     let type_name = extract_string(mapping, "type", path)?;
-    let type_name = type_name.as_ref().map(|s| s.as_str()).unwrap_or("sub");
+    let type_name = type_name.as_deref().unwrap_or("sub");
 
     match type_name {
         "real" => build_real(mapping, path),
@@ -76,16 +28,14 @@ fn build_node(yaml_val: &serde_yaml::Value, path: &Vec<&str>) -> Result<Node, Er
         "bool" => build_bool(mapping, path),
         "sub" => build_sub(mapping, path),
         "anon map" => build_anon_map(mapping, path),
-        _ => {
-            return Err(Error::UnknownTypeName {
-                path_hint: format_path(&path),
-                unknown_type_name: type_name.to_string(),
-            })
-        }
+        _ => Err(Error::UnknownTypeName {
+            path_hint: format_path(path),
+            unknown_type_name: type_name.to_string(),
+        }),
     }
 }
 
-fn build_real(mapping: &serde_yaml::Mapping, path: &Vec<&str>) -> Result<Node, Error> {
+fn build_real(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
     check_for_unexpected_attributes(
         mapping,
         ["type", "optional", "min", "max", "scale", "init", "dist"],
@@ -116,7 +66,7 @@ fn build_real(mapping: &serde_yaml::Mapping, path: &Vec<&str>) -> Result<Node, E
     let scale = extract_real(mapping, "scale", path)?.unwrap_or(1.0);
 
     let prob_dist = extract_string(mapping, "dist", path)?;
-    let prob_dist = match prob_dist.as_ref().map(|s| s.as_str()).unwrap_or("normal") {
+    let prob_dist = match prob_dist.as_deref().unwrap_or("normal") {
         "normal" => RealProbDist::Normal,
         "exponential" => RealProbDist::Exponential,
         unknown_value => {
@@ -137,7 +87,7 @@ fn build_real(mapping: &serde_yaml::Mapping, path: &Vec<&str>) -> Result<Node, E
     })
 }
 
-fn build_int(mapping: &serde_yaml::Mapping, path: &Vec<&str>) -> Result<Node, Error> {
+fn build_int(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
     check_for_unexpected_attributes(
         mapping,
         ["type", "optional", "min", "max", "scale", "init", "dist"],
@@ -168,7 +118,7 @@ fn build_int(mapping: &serde_yaml::Mapping, path: &Vec<&str>) -> Result<Node, Er
     let scale = extract_real(mapping, "scale", path)?.unwrap_or(1.0);
 
     let prob_dist = extract_string(mapping, "dist", path)?;
-    let prob_dist = match prob_dist.as_ref().map(|s| s.as_str()).unwrap_or("normal") {
+    let prob_dist = match prob_dist.as_deref().unwrap_or("normal") {
         "normal" => IntProbDist::Normal,
         "uniform" => IntProbDist::Uniform,
         unknown_value => {
@@ -189,7 +139,7 @@ fn build_int(mapping: &serde_yaml::Mapping, path: &Vec<&str>) -> Result<Node, Er
     })
 }
 
-fn build_bool(mapping: &serde_yaml::Mapping, path: &Vec<&str>) -> Result<Node, Error> {
+fn build_bool(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
     check_for_unexpected_attributes(mapping, ["type", "init"], path)?;
 
     Ok(Node::Bool {
@@ -197,18 +147,17 @@ fn build_bool(mapping: &serde_yaml::Mapping, path: &Vec<&str>) -> Result<Node, E
     })
 }
 
-fn build_sub(mapping: &serde_yaml::Mapping, path: &Vec<&str>) -> Result<Node, Error> {
+fn build_sub(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
     let optional = extract_is_optional(mapping, path)?;
 
     let mut out_mapping = HashMap::new();
     for (key, value) in mapping {
         match key.as_str() {
             Some(attribute_key) if !attribute_key.eq("optional") && !attribute_key.eq("type") => {
-                let mut sub_path = path.clone();
-                sub_path.push(attribute_key);
+                let path_of_sub = [path, &[attribute_key]].concat();
                 out_mapping.insert(
                     attribute_key.to_string(),
-                    Box::new(build_node(value, &sub_path)?),
+                    Box::new(build_node(value, &path_of_sub)?),
                 );
             }
             None => {
@@ -233,12 +182,15 @@ fn build_sub(mapping: &serde_yaml::Mapping, path: &Vec<&str>) -> Result<Node, Er
     })
 }
 
-fn build_anon_map(mapping: &serde_yaml::Mapping, path: &Vec<&str>) -> Result<Node, Error> {
+fn build_anon_map(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
     check_for_unexpected_attributes(mapping, ["type", "optional", "initSize", "valueType"], path)?;
     let optional = extract_is_optional(mapping, path)?;
 
     let value_type = match mapping.get("valueType") {
-        Some(value) => Box::new(build_node(value, path)?),
+        Some(value) => {
+            let path_of_sub = [path, &["(anonymous)"]].concat();
+            Box::new(build_node(value, &path_of_sub)?)
+        }
         None => {
             return Err(Error::MandatoryAttributeMissing {
                 path_hint: format_path(path),
@@ -274,7 +226,7 @@ fn build_anon_map(mapping: &serde_yaml::Mapping, path: &Vec<&str>) -> Result<Nod
 fn extract_string(
     mapping: &serde_yaml::Mapping,
     attribute_name: &str,
-    path: &Vec<&str>,
+    path: &[&str],
 ) -> Result<Option<String>, Error> {
     extract_attribute_value(
         mapping,
@@ -288,7 +240,7 @@ fn extract_string(
 fn extract_real(
     mapping: &serde_yaml::Mapping,
     attribute_name: &str,
-    path: &Vec<&str>,
+    path: &[&str],
 ) -> Result<Option<f64>, Error> {
     extract_attribute_value(
         mapping,
@@ -302,7 +254,7 @@ fn extract_real(
 fn extract_int(
     mapping: &serde_yaml::Mapping,
     attribute_name: &str,
-    path: &Vec<&str>,
+    path: &[&str],
 ) -> Result<Option<i64>, Error> {
     extract_attribute_value(
         mapping,
@@ -316,7 +268,7 @@ fn extract_int(
 fn extract_bool(
     mapping: &serde_yaml::Mapping,
     attribute_name: &str,
-    path: &Vec<&str>,
+    path: &[&str],
 ) -> Result<Option<bool>, Error> {
     extract_attribute_value(
         mapping,
@@ -330,7 +282,7 @@ fn extract_bool(
 fn extract_attribute_value<F, T>(
     mapping: &serde_yaml::Mapping,
     attribute_name: &str,
-    path: &Vec<&str>,
+    path: &[&str],
     value_extractor: F,
     expected_type_hint: &str,
 ) -> Result<Option<T>, Error>
@@ -354,14 +306,14 @@ where
     Ok(result)
 }
 
-fn extract_is_optional(mapping: &serde_yaml::Mapping, path: &Vec<&str>) -> Result<bool, Error> {
+fn extract_is_optional(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<bool, Error> {
     Ok(extract_bool(mapping, "optional", path)?.unwrap_or(false))
 }
 
 fn check_for_unexpected_attributes<const N: usize>(
     mapping: &serde_yaml::Mapping,
     allowed_attributes: [&str; N],
-    path: &Vec<&str>,
+    path: &[&str],
 ) -> Result<(), Error> {
     let allowed_attributes = HashSet::from(allowed_attributes);
     for attribute_key in mapping.keys() {
@@ -384,14 +336,6 @@ fn check_for_unexpected_attributes<const N: usize>(
     }
 
     Ok(())
-}
-
-fn format_path(path: &Vec<&str>) -> String {
-    if path.is_empty() {
-        "(root)".to_string()
-    } else {
-        path.join(".")
-    }
 }
 
 #[cfg(test)]

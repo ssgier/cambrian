@@ -37,13 +37,13 @@ pub enum Node {
     ConstInt(i64),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum RealProbDist {
     Normal,
     Exponential,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum IntProbDist {
     Normal,
     Uniform,
