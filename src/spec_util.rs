@@ -19,7 +19,7 @@ fn build_node(yaml_val: &serde_yaml::Value, path: &[&str]) -> Result<Node, Error
         }
     };
 
-    let type_name = extract_string(mapping, "type", path)?;
+    let type_name = extract_string(mapping, "type", path, false)?;
     let type_name = type_name.as_deref().unwrap_or("sub");
 
     match type_name {
@@ -43,10 +43,10 @@ fn build_real(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Erro
     )?;
 
     let optional = extract_is_optional(mapping, path)?;
-    let min = extract_real(mapping, "min", path)?;
-    let max = extract_real(mapping, "max", path)?;
+    let min = extract_real(mapping, "min", path, false)?;
+    let max = extract_real(mapping, "max", path, false)?;
 
-    let init = extract_real(mapping, "init", path)?.unwrap_or({
+    let init = extract_real(mapping, "init", path, true)?.unwrap_or({
         let mut init = 0.0;
         min.iter().for_each(|min| {
             init = f64::max(*min, init);
@@ -63,9 +63,9 @@ fn build_real(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Erro
         });
     }
 
-    let scale = extract_real(mapping, "scale", path)?.unwrap_or(1.0);
+    let scale = extract_real(mapping, "scale", path, true)?.unwrap_or(1.0);
 
-    let prob_dist = extract_string(mapping, "dist", path)?;
+    let prob_dist = extract_string(mapping, "dist", path, false)?;
     let prob_dist = match prob_dist.as_deref().unwrap_or("normal") {
         "normal" => RealProbDist::Normal,
         "exponential" => RealProbDist::Exponential,
@@ -95,10 +95,10 @@ fn build_int(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error
     )?;
 
     let optional = extract_is_optional(mapping, path)?;
-    let min = extract_int(mapping, "min", path)?;
-    let max = extract_int(mapping, "max", path)?;
+    let min = extract_int(mapping, "min", path, false)?;
+    let max = extract_int(mapping, "max", path, false)?;
 
-    let init = extract_int(mapping, "init", path)?.unwrap_or({
+    let init = extract_int(mapping, "init", path, true)?.unwrap_or({
         let mut init = 0;
         min.iter().for_each(|min| {
             init = i64::max(*min, init);
@@ -115,9 +115,9 @@ fn build_int(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error
         });
     }
 
-    let scale = extract_real(mapping, "scale", path)?.unwrap_or(1.0);
+    let scale = extract_real(mapping, "scale", path, true)?.unwrap_or(1.0);
 
-    let prob_dist = extract_string(mapping, "dist", path)?;
+    let prob_dist = extract_string(mapping, "dist", path, false)?;
     let prob_dist = match prob_dist.as_deref().unwrap_or("normal") {
         "normal" => IntProbDist::Normal,
         "uniform" => IntProbDist::Uniform,
@@ -143,7 +143,7 @@ fn build_bool(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Erro
     check_for_unexpected_attributes(mapping, ["type", "init"], path)?;
 
     Ok(Node::Bool {
-        init: extract_bool(mapping, "init", path)?.unwrap_or(false),
+        init: extract_bool(mapping, "init", path, false)?.unwrap_or(false),
     })
 }
 
@@ -205,6 +205,7 @@ fn build_anon_map(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, 
         path,
         |value| value.as_u64(),
         "a positive integer",
+        false,
     )?
     .unwrap_or(0);
 
@@ -227,6 +228,7 @@ fn extract_string(
     mapping: &serde_yaml::Mapping,
     attribute_name: &str,
     path: &[&str],
+    mandatory: bool,
 ) -> Result<Option<String>, Error> {
     extract_attribute_value(
         mapping,
@@ -234,6 +236,7 @@ fn extract_string(
         path,
         |value| value.as_str().map(|s| s.to_string()),
         "a string",
+        mandatory,
     )
 }
 
@@ -241,6 +244,7 @@ fn extract_real(
     mapping: &serde_yaml::Mapping,
     attribute_name: &str,
     path: &[&str],
+    mandatory: bool,
 ) -> Result<Option<f64>, Error> {
     extract_attribute_value(
         mapping,
@@ -248,6 +252,7 @@ fn extract_real(
         path,
         |value| value.as_f64(),
         "a real number",
+        mandatory,
     )
 }
 
@@ -255,6 +260,7 @@ fn extract_int(
     mapping: &serde_yaml::Mapping,
     attribute_name: &str,
     path: &[&str],
+    mandatory: bool,
 ) -> Result<Option<i64>, Error> {
     extract_attribute_value(
         mapping,
@@ -262,6 +268,7 @@ fn extract_int(
         path,
         |value| value.as_i64(),
         "an integer",
+        mandatory,
     )
 }
 
@@ -269,6 +276,7 @@ fn extract_bool(
     mapping: &serde_yaml::Mapping,
     attribute_name: &str,
     path: &[&str],
+    mandatory: bool,
 ) -> Result<Option<bool>, Error> {
     extract_attribute_value(
         mapping,
@@ -276,6 +284,7 @@ fn extract_bool(
         path,
         |value| value.as_bool(),
         "a boolean",
+        mandatory,
     )
 }
 
@@ -285,6 +294,7 @@ fn extract_attribute_value<F, T>(
     path: &[&str],
     value_extractor: F,
     expected_type_hint: &str,
+    mandatory: bool,
 ) -> Result<Option<T>, Error>
 where
     F: FnOnce(&serde_yaml::Value) -> Option<T>,
@@ -303,11 +313,17 @@ where
         None => None,
     };
 
-    Ok(result)
+    match result {
+        None if mandatory => Err(Error::MandatoryAttributeMissing {
+            path_hint: format_path(path),
+            missing_attribute_name: attribute_name.to_string(),
+        }),
+        _ => Ok(result),
+    }
 }
 
 fn extract_is_optional(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<bool, Error> {
-    Ok(extract_bool(mapping, "optional", path)?.unwrap_or(false))
+    Ok(extract_bool(mapping, "optional", path, false)?.unwrap_or(false))
 }
 
 fn check_for_unexpected_attributes<const N: usize>(
@@ -430,6 +446,8 @@ mod tests {
     fn real_defaults() {
         let yaml_str = "
         type: real
+        init: 0.0
+        scale: 1.0
         ";
         assert!(matches!(
             from_yaml_str(yaml_str),
@@ -451,6 +469,8 @@ mod tests {
         let yaml_str = "
         type: real
         dist: Foo
+        init: 0.1
+        scale: 1.0
         ";
         assert!(matches!(
             from_yaml_str(yaml_str),
@@ -504,7 +524,10 @@ mod tests {
     fn int_defaults() {
         let yaml_str = "
         type: int
+        init: 0
+        scale: 1.0
         ";
+
         assert!(matches!(
             from_yaml_str(yaml_str),
             Ok(Spec(Node::Int {

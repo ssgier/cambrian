@@ -63,4 +63,6 @@ pub enum Error {
     UnexpectedKey { path_hint: String, key: String },
     #[error("at path {path_hint:?}: anon map keys must be parseable as unsigned integers")]
     InvalidAnonMapKey { path_hint: String },
+    #[error("at path {path_hint:?}: value not within bounds")]
+    ValueNotWithinBounds { path_hint: String },
 }

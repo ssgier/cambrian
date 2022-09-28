@@ -17,17 +17,17 @@ fn build_node(
     spec_node: &spec::Node,
     path: &[&str],
 ) -> Result<Option<Node>, Error> {
-    match spec_node {
-        spec::Node::Real { optional, .. } => build_real(json_val, *optional, path),
-        spec::Node::Int { optional, .. } => build_int(json_val, *optional, path),
+    match *spec_node {
+        spec::Node::Real { ref optional, .. } => build_real(json_val, *optional, path),
+        spec::Node::Int { ref optional, .. } => build_int(json_val, *optional, path),
         spec::Node::Bool { .. } => build_bool(json_val, path),
         spec::Node::Sub {
-            optional,
-            map: spec_map,
+            ref optional,
+            map: ref spec_map,
         } => build_sub(json_val, *optional, spec_map, path),
         spec::Node::AnonMap {
-            optional,
-            value_type,
+            ref optional,
+            ref value_type,
             ..
         } => build_anon_map(json_val, *optional, value_type, path),
         spec::Node::ConstInt(_) => panic!("unsupported"),
@@ -264,6 +264,8 @@ mod tests {
     fn real() {
         let spec_str = "
         type: real
+        init: 0
+        scale: 1
         ";
         let value_str = "4.0";
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
@@ -279,8 +281,12 @@ mod tests {
         let spec_str = "
         foo:
             type: real
+            init: 0
+            scale: 1
         bar:
             type: real
+            init: 0
+            scale: 1
         ";
         let value_str = "{
             \"bar\": 4.0
@@ -298,6 +304,8 @@ mod tests {
     fn real_wrong_value_type() {
         let spec_str = "
         type: real
+        init: 0
+        scale: 1
         ";
         let value_str = "{ \"foo\": 4.0}";
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
@@ -312,6 +320,8 @@ mod tests {
     fn int() {
         let spec_str = "
         type: int
+        init: 0
+        scale: 1
         ";
         let value_str = "5";
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
@@ -325,8 +335,12 @@ mod tests {
         let spec_str = "
         foo:
             type: int
+            init: 0
+            scale: 1
         bar:
             type: int
+            init: 0
+            scale: 1
         ";
         let value_str = "{
             \"bar\": 4
@@ -344,6 +358,8 @@ mod tests {
     fn int_wrong_value_type() {
         let spec_str = "
         type: int
+        init: 0
+        scale: 1
         ";
         let value_str = "false";
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
@@ -358,6 +374,8 @@ mod tests {
     fn int_number_conversion_failed() {
         let spec_str = "
         type: int
+        init: 0
+        scale: 1
         ";
         let value_str = "2.5";
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
@@ -373,6 +391,8 @@ mod tests {
         let spec_str = "
         foo:
             type: int
+            init: 0
+            scale: 1
         ";
         let value_str = "{
             \"foo\": 4
@@ -395,6 +415,8 @@ mod tests {
         let spec_str = "
         foo:
             type: int
+            init: 0
+            scale: 1
         ";
         let value_str = "{
             \"bar\": 4
@@ -413,6 +435,8 @@ mod tests {
         let spec_str = "
         foo:
             type: int
+            init: 0
+            scale: 1
         ";
         let value_str = "false";
 
@@ -430,8 +454,12 @@ mod tests {
         foo:
             bar:
                 type: int
+                init: 0
+                scale: 1
         bar:
             type: int
+            init: 0
+            scale: 1
         ";
         let value_str = "{
             \"bar\": 4
@@ -531,7 +559,7 @@ mod tests {
     }
 
     #[test]
-    fn compplex_example_success() {
+    fn complex_example_success() {
         let spec_str = "
         l0a:
             type: anon map
@@ -539,9 +567,13 @@ mod tests {
                 type: sub
                 foo:
                     type: int
+                    init: 0
+                    scale: 1
                 bar:
                     type: real
                     optional: true
+                    init: 0
+                    scale: 1
         l0b:
             type: bool
         ";
@@ -565,7 +597,7 @@ mod tests {
     }
 
     #[test]
-    fn compplex_example_wrong_type() {
+    fn complex_example_wrong_type() {
         let spec_str = "
         l0a:
             type: anon map
@@ -573,9 +605,13 @@ mod tests {
                 type: sub
                 foo:
                     type: int
+                    init: 0
+                    scale: 1
                 bar:
                     type: real
                     optional: true
+                    init: 0
+                    scale: 1
         l0b:
             type: bool
         ";
