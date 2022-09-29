@@ -479,6 +479,34 @@ mod tests {
     }
 
     #[test]
+    fn real_missing_scale() {
+        let yaml_str = "
+        type: real
+        init: 0
+        ";
+
+        assert!(matches!(
+        from_yaml_str(yaml_str),
+            Err(Error::MandatoryAttributeMissing { path_hint, missing_attribute_name })
+            if path_hint == "(root)" && missing_attribute_name == "scale"
+        ));
+    }
+
+    #[test]
+    fn real_missing_init() {
+        let yaml_str = "
+        type: real
+        scale: 1
+        ";
+
+        assert!(matches!(
+        from_yaml_str(yaml_str),
+            Err(Error::MandatoryAttributeMissing { path_hint, missing_attribute_name })
+            if path_hint == "(root)" && missing_attribute_name == "init"
+        ));
+    }
+
+    #[test]
     fn real_bounds_sanity() {
         let yaml_str = "
         type: real
@@ -586,6 +614,33 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn int_missing_scale() {
+        let yaml_str = "
+        type: int
+        init: 0
+        ";
+
+        assert!(matches!(
+        from_yaml_str(yaml_str),
+            Err(Error::MandatoryAttributeMissing { path_hint, missing_attribute_name })
+            if path_hint == "(root)" && missing_attribute_name == "scale"
+        ));
+    }
+
+    #[test]
+    fn int_missing_init() {
+        let yaml_str = "
+        type: int
+        scale: 1
+        ";
+
+        assert!(matches!(
+        from_yaml_str(yaml_str),
+            Err(Error::MandatoryAttributeMissing { path_hint, missing_attribute_name })
+            if path_hint == "(root)" && missing_attribute_name == "init"
+        ));
+    }
     #[test]
     fn int_bounds_sanity() {
         let yaml_str = "
