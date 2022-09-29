@@ -67,4 +67,9 @@ pub enum Error {
     InvalidAnonMapKey { path_hint: String },
     #[error("at path {path_hint:?}: value not within bounds")]
     ValueNotWithinBounds { path_hint: String },
+    #[error("at path {path_hint:?} and attribute {attribute_name:?}: number must be finite")]
+    NonFiniteNumber {
+        path_hint: String,
+        attribute_name: String,
+    },
 }

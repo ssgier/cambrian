@@ -48,6 +48,17 @@ fn check_bounds_sanity<T: PartialOrd>(
     }
 }
 
+fn check_finite(num: f64, attribute_name: &str, path: &[&str]) -> Result<(), Error> {
+    if !f64::is_finite(num) {
+        Err(Error::NonFiniteNumber {
+            path_hint: format_path(path),
+            attribute_name: attribute_name.to_string(),
+        })
+    } else {
+        Ok(())
+    }
+}
+
 fn build_real(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
     check_for_unexpected_attributes(
         mapping,
@@ -263,14 +274,22 @@ fn extract_real(
     path: &[&str],
     mandatory: bool,
 ) -> Result<Option<f64>, Error> {
-    extract_attribute_value(
+    let result = extract_attribute_value(
         mapping,
         attribute_name,
         path,
         |value| value.as_f64(),
         "a real number",
         mandatory,
-    )
+    );
+
+    match result? {
+        res @ Some(num) => {
+            check_finite(num, attribute_name, path)?;
+            Ok(res)
+        }
+        res => Ok(res),
+    }
 }
 
 fn extract_int(
@@ -472,6 +491,20 @@ mod tests {
         assert!(matches!(
         from_yaml_str(yaml_str),
         Err(Error::InvalidBounds {path_hint}) if *"(root)" == path_hint
+        ));
+    }
+
+    #[test]
+    fn non_finite_number() {
+        let yaml_str = "
+        type: real
+        init: 0
+        scale: .nan
+        ";
+
+        assert!(matches!(
+        from_yaml_str(yaml_str),
+        Err(Error::NonFiniteNumber {path_hint, attribute_name}) if *"(root)" == path_hint && *"scale" == attribute_name
         ));
     }
 
