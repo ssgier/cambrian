@@ -111,6 +111,7 @@ fn build_real(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Erro
     }
 
     let scale = extract_real(mapping, "scale", path, true)?.unwrap_or(1.0);
+    check_scale(scale, path)?;
 
     let prob_dist = extract_string(mapping, "dist", path, false)?;
     let prob_dist = match prob_dist.as_deref().unwrap_or("normal") {
@@ -132,6 +133,16 @@ fn build_real(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Erro
         max,
         prob_dist,
     })
+}
+
+fn check_scale(scale: f64, path: &[&str]) -> Result<(), Error> {
+    if scale <= 0. {
+        Err(Error::ScaleMustBeStrictlyPositive {
+            path_hint: format_path(path),
+        })
+    } else {
+        Ok(())
+    }
 }
 
 fn build_int(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
@@ -165,6 +176,7 @@ fn build_int(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error
     }
 
     let scale = extract_real(mapping, "scale", path, true)?.unwrap_or(1.0);
+    check_scale(scale, path)?;
 
     let prob_dist = extract_string(mapping, "dist", path, false)?;
     let prob_dist = match prob_dist.as_deref().unwrap_or("normal") {
@@ -544,6 +556,21 @@ mod tests {
     }
 
     #[test]
+    fn real_scale_not_strictly_positive() {
+        let yaml_str = "
+        type: real
+        init: 0
+        scale: 0.0
+        ";
+
+        assert!(matches!(
+        from_yaml_str(yaml_str),
+            Err(Error::ScaleMustBeStrictlyPositive { path_hint })
+            if path_hint == "(root)"
+        ));
+    }
+
+    #[test]
     fn real_missing_scale() {
         let yaml_str = "
         type: real
@@ -690,6 +717,21 @@ mod tests {
         from_yaml_str(yaml_str),
             Err(Error::MandatoryAttributeMissing { path_hint, missing_attribute_name })
             if path_hint == "(root)" && missing_attribute_name == "scale"
+        ));
+    }
+
+    #[test]
+    fn int_scale_not_positive() {
+        let yaml_str = "
+        type: int
+        init: 0
+        scale: -0.5
+        ";
+
+        assert!(matches!(
+        from_yaml_str(yaml_str),
+            Err(Error::ScaleMustBeStrictlyPositive { path_hint })
+            if path_hint == "(root)"
         ));
     }
 

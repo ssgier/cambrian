@@ -76,4 +76,6 @@ pub enum Error {
         path_hint: String,
         attribute_name: String,
     },
+    #[error("at path {path_hint:?}: scale must be strictly positive")]
+    ScaleMustBeStrictlyPositive { path_hint: String },
 }
