@@ -35,6 +35,19 @@ fn build_node(yaml_val: &serde_yaml::Value, path: &[&str]) -> Result<Node, Error
     }
 }
 
+fn check_bounds_sanity<T: PartialOrd>(
+    min: Option<T>,
+    max: Option<T>,
+    path: &[&str],
+) -> Result<(), Error> {
+    match (min, max) {
+        (Some(min), Some(max)) if min >= max => Err(Error::InvalidBounds {
+            path_hint: format_path(path),
+        }),
+        _ => Ok(()),
+    }
+}
+
 fn build_real(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
     check_for_unexpected_attributes(
         mapping,
@@ -45,6 +58,8 @@ fn build_real(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Erro
     let optional = extract_is_optional(mapping, path)?;
     let min = extract_real(mapping, "min", path, false)?;
     let max = extract_real(mapping, "max", path, false)?;
+
+    check_bounds_sanity(min, max, path)?;
 
     let init = extract_real(mapping, "init", path, true)?.unwrap_or({
         let mut init = 0.0;
@@ -97,6 +112,8 @@ fn build_int(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error
     let optional = extract_is_optional(mapping, path)?;
     let min = extract_int(mapping, "min", path, false)?;
     let max = extract_int(mapping, "max", path, false)?;
+
+    check_bounds_sanity(min, max, path)?;
 
     let init = extract_int(mapping, "init", path, true)?.unwrap_or({
         let mut init = 0;
@@ -443,6 +460,22 @@ mod tests {
     }
 
     #[test]
+    fn real_bounds_sanity() {
+        let yaml_str = "
+        type: real
+        init: 0
+        scale: 1
+        min: 1
+        max: 0
+        ";
+
+        assert!(matches!(
+        from_yaml_str(yaml_str),
+        Err(Error::InvalidBounds {path_hint}) if *"(root)" == path_hint
+        ));
+    }
+
+    #[test]
     fn real_defaults() {
         let yaml_str = "
         type: real
@@ -517,6 +550,22 @@ mod tests {
                 scale,
             })) if
             approx_eq!(f64, scale, 0.5, F64Margin::default())
+        ));
+    }
+
+    #[test]
+    fn int_bounds_sanity() {
+        let yaml_str = "
+        type: int
+        init: 0
+        scale: 1
+        min: 1
+        max: 0
+        ";
+
+        assert!(matches!(
+        from_yaml_str(yaml_str),
+        Err(Error::InvalidBounds {path_hint}) if *"(root)" == path_hint
         ));
     }
 

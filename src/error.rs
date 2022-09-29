@@ -38,6 +38,8 @@ pub enum Error {
     },
     #[error("at path {path_hint:?}: initial value is not within bounds provided")]
     InitNotWithinBounds { path_hint: String },
+    #[error("at path {path_hint:?}: min must be lower than max")]
+    InvalidBounds { path_hint: String },
     #[error("at path {path_hint:?}: mandatory attribute missing: {missing_attribute_name:?}")]
     MandatoryAttributeMissing {
         path_hint: String,
