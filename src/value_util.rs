@@ -18,8 +18,18 @@ fn build_node(
     path: &[&str],
 ) -> Result<Option<Node>, Error> {
     match *spec_node {
-        spec::Node::Real { ref optional, .. } => build_real(json_val, *optional, path),
-        spec::Node::Int { ref optional, .. } => build_int(json_val, *optional, path),
+        spec::Node::Real {
+            ref optional,
+            min,
+            max,
+            ..
+        } => build_real(json_val, min, max, *optional, path),
+        spec::Node::Int {
+            ref optional,
+            min,
+            max,
+            ..
+        } => build_int(json_val, min, max, *optional, path),
         spec::Node::Bool { .. } => build_bool(json_val, path),
         spec::Node::Sub {
             ref optional,
@@ -34,26 +44,37 @@ fn build_node(
     }
 }
 
-fn build_number<F>(
+fn build_real(
     json_val: Option<&serde_json::Value>,
+    min: Option<f64>,
+    max: Option<f64>,
     is_optional: bool,
     path: &[&str],
-    extractor: F,
-    type_hint: &str,
-) -> Result<Option<Node>, Error>
-where
-    F: FnOnce(&serde_json::value::Number) -> Option<Node>,
-{
+) -> Result<Option<Node>, Error> {
     match json_val {
-        Some(serde_json::Value::Number(number)) => match extractor(number) {
+        Some(serde_json::Value::Number(number)) => match number.as_f64() {
             None => Err(Error::NumberConversionFailed {
                 path_hint: format_path(path),
             }),
-            x => Ok(x),
+            Some(real_num) => {
+                let out_of_bounds = match (min, max) {
+                    (Some(min), _) if real_num < min => true,
+                    (_, Some(max)) if real_num > max => true,
+                    _ => false,
+                };
+
+                if out_of_bounds {
+                    Err(Error::ValueNotWithinBounds {
+                        path_hint: format_path(path),
+                    })
+                } else {
+                    Ok(Some(Node::Real(real_num)))
+                }
+            }
         },
         Some(_) => Err(Error::WrongTypeForValue {
             path_hint: format_path(path),
-            type_hint: type_hint.to_string(),
+            type_hint: "a real number".to_string(),
         }),
         None => {
             if is_optional {
@@ -67,32 +88,48 @@ where
     }
 }
 
-fn build_real(
-    json_val: Option<&serde_json::Value>,
-    is_optional: bool,
-    path: &[&str],
-) -> Result<Option<Node>, Error> {
-    build_number(
-        json_val,
-        is_optional,
-        path,
-        |val| val.as_f64().map(Node::Real),
-        "a real number",
-    )
-}
-
 fn build_int(
     json_val: Option<&serde_json::Value>,
+    min: Option<i64>,
+    max: Option<i64>,
     is_optional: bool,
     path: &[&str],
 ) -> Result<Option<Node>, Error> {
-    build_number(
-        json_val,
-        is_optional,
-        path,
-        |val| val.as_i64().map(Node::Int),
-        "integer",
-    )
+    match json_val {
+        Some(serde_json::Value::Number(number)) => match number.as_i64() {
+            None => Err(Error::NumberConversionFailed {
+                path_hint: format_path(path),
+            }),
+            Some(real_num) => {
+                let out_of_bounds = match (min, max) {
+                    (Some(min), _) if real_num < min => true,
+                    (_, Some(max)) if real_num > max => true,
+                    _ => false,
+                };
+
+                if out_of_bounds {
+                    Err(Error::ValueNotWithinBounds {
+                        path_hint: format_path(path),
+                    })
+                } else {
+                    Ok(Some(Node::Int(real_num)))
+                }
+            }
+        },
+        Some(_) => Err(Error::WrongTypeForValue {
+            path_hint: format_path(path),
+            type_hint: "integer".to_string(),
+        }),
+        None => {
+            if is_optional {
+                Ok(None)
+            } else {
+                Err(Error::MandatoryValueMissing {
+                    path_hint: format_path(path),
+                })
+            }
+        }
+    }
 }
 
 fn build_bool(json_val: Option<&serde_json::Value>, path: &[&str]) -> Result<Option<Node>, Error> {
@@ -277,6 +314,42 @@ mod tests {
     }
 
     #[test]
+    fn real_upper_bound_breach() {
+        let spec_str = "
+        type: real
+        init: 3
+        scale: 1
+        min: 3
+        max: 4
+        ";
+        let value_str = "4.01";
+        let spec = spec_util::from_yaml_str(spec_str).unwrap();
+        let result = from_json_str(value_str, &spec);
+
+        assert!(
+            matches!(result, Err(Error::ValueNotWithinBounds {path_hint}) if path_hint == *"(root)" )
+        );
+    }
+
+    #[test]
+    fn real_lower_bound_breach() {
+        let spec_str = "
+        type: real
+        init: 3
+        scale: 1
+        min: 3
+        max: 4
+        ";
+        let value_str = "2.99";
+        let spec = spec_util::from_yaml_str(spec_str).unwrap();
+        let result = from_json_str(value_str, &spec);
+
+        assert!(
+            matches!(result, Err(Error::ValueNotWithinBounds {path_hint}) if path_hint == *"(root)" )
+        );
+    }
+
+    #[test]
     fn real_not_present() {
         let spec_str = "
         foo:
@@ -322,12 +395,50 @@ mod tests {
         type: int
         init: 0
         scale: 1
+        min: 0
+        max: 5
         ";
         let value_str = "5";
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
         let result = from_json_str(value_str, &spec);
 
         assert!(matches!(result, Ok(Value(Node::Int(5)))));
+    }
+
+    #[test]
+    fn int_upper_bound_breach() {
+        let spec_str = "
+        type: int
+        init: 3
+        scale: 1
+        min: 3
+        max: 4
+        ";
+        let value_str = "5";
+        let spec = spec_util::from_yaml_str(spec_str).unwrap();
+        let result = from_json_str(value_str, &spec);
+
+        assert!(
+            matches!(result, Err(Error::ValueNotWithinBounds {path_hint}) if path_hint == *"(root)" )
+        );
+    }
+
+    #[test]
+    fn int_lower_bound_breach() {
+        let spec_str = "
+        type: int
+        init: 3
+        scale: 1
+        min: 3
+        max: 4
+        ";
+        let value_str = "2";
+        let spec = spec_util::from_yaml_str(spec_str).unwrap();
+        let result = from_json_str(value_str, &spec);
+
+        assert!(
+            matches!(result, Err(Error::ValueNotWithinBounds {path_hint}) if path_hint == *"(root)" )
+        );
     }
 
     #[test]
