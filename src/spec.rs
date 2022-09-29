@@ -33,6 +33,8 @@ pub enum Node {
         optional: bool,
         value_type: Box<Node>,
         init_size: usize,
+        min_size: Option<usize>,
+        max_size: Option<usize>,
     },
     ConstInt(i64),
 }

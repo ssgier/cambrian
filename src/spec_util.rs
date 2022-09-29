@@ -40,10 +40,31 @@ fn check_bounds_sanity<T: PartialOrd>(
     max: Option<T>,
     path: &[&str],
 ) -> Result<(), Error> {
+    do_check_bounds_sanity(min, max, || Error::InvalidBounds {
+        path_hint: format_path(path),
+    })
+}
+
+fn check_size_bounds_sanity<T: PartialOrd>(
+    min: Option<T>,
+    max: Option<T>,
+    path: &[&str],
+) -> Result<(), Error> {
+    do_check_bounds_sanity(min, max, || Error::InvalidSizeBounds {
+        path_hint: format_path(path),
+    })
+}
+
+fn do_check_bounds_sanity<F, T: PartialOrd>(
+    min: Option<T>,
+    max: Option<T>,
+    error_supplier: F,
+) -> Result<(), Error>
+where
+    F: FnOnce() -> Error,
+{
     match (min, max) {
-        (Some(min), Some(max)) if min >= max => Err(Error::InvalidBounds {
-            path_hint: format_path(path),
-        }),
+        (Some(min), Some(max)) if min >= max => Err(error_supplier()),
         _ => Ok(()),
     }
 }
@@ -211,7 +232,19 @@ fn build_sub(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error
 }
 
 fn build_anon_map(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
-    check_for_unexpected_attributes(mapping, ["type", "optional", "initSize", "valueType"], path)?;
+    check_for_unexpected_attributes(
+        mapping,
+        [
+            "type",
+            "optional",
+            "initSize",
+            "minSize",
+            "maxSize",
+            "valueType",
+        ],
+        path,
+    )?;
+
     let optional = extract_is_optional(mapping, path)?;
 
     let value_type = match mapping.get("valueType") {
@@ -227,29 +260,34 @@ fn build_anon_map(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, 
         }
     };
 
-    let init_size = extract_attribute_value(
-        mapping,
-        "initSize",
-        path,
-        |value| value.as_u64(),
-        "a positive integer",
-        false,
-    )?
-    .unwrap_or(0);
+    let min_size = extract_usize_attribute_value(mapping, "minSize", path, false)?;
+    let max_size = extract_usize_attribute_value(mapping, "maxSize", path, false)?;
 
-    let init_size = match usize::try_from(init_size) {
-        Err(_) => Err(Error::UnsignedIntConversionFailed {
+    check_size_bounds_sanity(min_size, max_size, path)?;
+
+    let init_size = extract_usize_attribute_value(mapping, "initSize", path, false)?
+        .or(min_size)
+        .unwrap_or(0);
+
+    let out_of_bounds = match (min_size, max_size) {
+        (Some(min_size), _) if init_size < min_size => true,
+        (_, Some(max_size)) if init_size > max_size => true,
+        _ => false,
+    };
+
+    if out_of_bounds {
+        Err(Error::InitSizeNotWithinBounds {
             path_hint: format_path(path),
-            attribute_name: "initSize".to_string(),
-        }),
-        Ok(res) => Ok(res),
-    }?;
-
-    Ok(Node::AnonMap {
-        optional,
-        value_type,
-        init_size,
-    })
+        })
+    } else {
+        Ok(Node::AnonMap {
+            optional,
+            value_type,
+            init_size,
+            min_size,
+            max_size,
+        })
+    }
 }
 
 fn extract_string(
@@ -322,6 +360,33 @@ fn extract_bool(
         "a boolean",
         mandatory,
     )
+}
+
+fn extract_usize_attribute_value(
+    mapping: &serde_yaml::Mapping,
+    attribute_name: &str,
+    path: &[&str],
+    mandatory: bool,
+) -> Result<Option<usize>, Error> {
+    let value_u64 = extract_attribute_value(
+        mapping,
+        attribute_name,
+        path,
+        |value| value.as_u64(),
+        "a positive integer",
+        mandatory,
+    )?;
+
+    match value_u64 {
+        Some(val) => match usize::try_from(val) {
+            Err(_) => Err(Error::UnsignedIntConversionFailed {
+                path_hint: format_path(path),
+                attribute_name: attribute_name.to_string(),
+            }),
+            Ok(res) => Ok(Some(res)),
+        },
+        _ => Ok(None),
+    }
 }
 
 fn extract_attribute_value<F, T>(
@@ -732,6 +797,8 @@ mod tests {
         valueType:
             type: bool
         initSize: 2
+        minSize: 2
+        maxSize: 4
         ";
 
         assert!(matches!(
@@ -739,7 +806,9 @@ mod tests {
             Ok(Spec(Node::AnonMap {
                 optional: true,
                 init_size: 2,
-                value_type
+                value_type,
+                min_size: Some(2),
+                max_size: Some(4)
             })) if *value_type.as_ref() == Node::Bool {init: false}
         ));
     }
@@ -757,7 +826,9 @@ mod tests {
             Ok(Spec(Node::AnonMap {
                 optional: false,
                 init_size: 0,
-                value_type
+                value_type,
+                min_size: None,
+                max_size: None
             })) if *value_type.as_ref() == Node::Bool {init: false}
         ));
     }
@@ -772,6 +843,41 @@ mod tests {
         from_yaml_str(yaml_str),
             Err(Error::MandatoryAttributeMissing { path_hint, missing_attribute_name })
             if path_hint == "(root)" && missing_attribute_name == "valueType"
+        ));
+    }
+
+    #[test]
+    fn anon_map_invalid_size_bounds() {
+        let yaml_str = "
+        type: anon map
+        valueType:
+            type: bool
+        minSize: 3
+        maxSize: 2
+        ";
+
+        assert!(matches!(
+        from_yaml_str(yaml_str),
+            Err(Error::InvalidSizeBounds { path_hint })
+            if path_hint == "(root)"
+        ));
+    }
+
+    #[test]
+    fn anon_map_init_size_out_of_bounds() {
+        let yaml_str = "
+        type: anon map
+        valueType:
+            type: bool
+        minSize: 2
+        maxSize: 3
+        initSize: 4
+        ";
+
+        assert!(matches!(
+        from_yaml_str(yaml_str),
+            Err(Error::InitSizeNotWithinBounds { path_hint })
+            if path_hint == "(root)"
         ));
     }
 
