@@ -78,4 +78,8 @@ pub enum Error {
     },
     #[error("at path {path_hint:?}: scale must be strictly positive")]
     ScaleMustBeStrictlyPositive { path_hint: String },
+    #[error("received non-finite objective function value")]
+    ObjFuncValMustBeFinite,
+    #[error("no successfully evaluated individuals available")]
+    NoIndividuals,
 }
