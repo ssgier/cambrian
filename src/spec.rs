@@ -139,4 +139,20 @@ mod tests {
 
         assert_eq!(init_val, expected_init_val);
     }
+
+    #[test]
+    fn anon_map_zero_init_size() {
+        let spec_str = "
+        type: anon map
+        valueType:
+            type: bool
+            init: true
+        initSize: 0
+        ";
+
+        let expected_init_val = Value(Node::AnonMap(HashMap::new()));
+        let init_val = from_yaml_str(spec_str).unwrap().initial_value();
+
+        assert_eq!(init_val, expected_init_val);
+    }
 }
