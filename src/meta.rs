@@ -1,6 +1,4 @@
-use crate::error::Error;
 use async_trait::async_trait;
-use finite::FiniteF64;
 
 pub struct CrossoverParams {
     pub crossover_prob: f64,

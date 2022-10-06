@@ -3,14 +3,17 @@ use crate::event::{
     ControllerEvent::{self, *},
     IndividualEvalJob,
 };
-use crate::message::{Command, Report};
+use crate::message::Report;
 use crate::meta::AlgoParams;
+use crate::meta::CrossoverParams;
+use crate::meta::MutationParams;
 use crate::spawn;
 use crate::spec::Spec;
 use crate::value::Value;
 use derivative::Derivative;
 use finite::FiniteF64;
 use futures::channel::oneshot::Sender;
+use futures::SinkExt;
 use futures::{
     channel::mpsc::{UnboundedReceiver, UnboundedSender},
     StreamExt,
@@ -18,11 +21,13 @@ use futures::{
 use std::collections::BTreeSet;
 
 struct Context {
-    algo_params: AlgoParams,
     spec: Spec,
+    algo_params: AlgoParams,
     individuals_evaled: BTreeSet<EvaluatedIndividual>,
     initial_value: Value,
     initial_value_job_sent: bool,
+    crossover_params: CrossoverParams,
+    mutation_params: MutationParams,
 }
 
 #[derive(Derivative)]
@@ -34,27 +39,41 @@ struct EvaluatedIndividual {
 }
 
 pub async fn start_controller(
-    algo_params: AlgoParams,
     spec: Spec,
+    algo_params: AlgoParams,
+    init_crossover_params: CrossoverParams,
+    init_mutation_params: MutationParams,
     mut recv: UnboundedReceiver<ControllerEvent>,
-    _report_sender: UnboundedSender<Report>,
+    mut report_sender: UnboundedSender<Report>,
 ) -> Result<Value, Error> {
     let mut ctx = Context {
+        initial_value: spawn::initial_value(&spec),
+        spec,
         algo_params,
         individuals_evaled: BTreeSet::new(),
-        initial_value: spawn::initial_value(&spec),
         initial_value_job_sent: false,
-        spec,
+        crossover_params: init_crossover_params,
+        mutation_params: init_mutation_params,
     };
 
     while let Some(event) = recv.next().await {
         match event {
-            WorkerReady { eval_job_sender } => ctx.create_and_send_next_eval_job(eval_job_sender),
+            WorkerReady { eval_job_sender } => {
+                ctx.create_and_send_next_eval_job(eval_job_sender).await;
+            }
             IndividualEvalCompleted {
                 obj_func_val,
                 individual,
                 next_eval_job_sender,
             } => {
+                report_sender
+                    .send(Report::IndividualEvalCompleted {
+                        obj_func_val,
+                        individual: individual.to_json(),
+                    })
+                    .await
+                    .ok();
+
                 if let Some(obj_func_val) = obj_func_val {
                     if let Some(obj_func_val) = FiniteF64::new(obj_func_val) {
                         ctx.individuals_evaled.insert(EvaluatedIndividual {
@@ -66,7 +85,8 @@ pub async fn start_controller(
                     }
                 }
 
-                ctx.create_and_send_next_eval_job(next_eval_job_sender);
+                ctx.create_and_send_next_eval_job(next_eval_job_sender)
+                    .await;
             }
             TerminationCommand => break,
         }
@@ -79,19 +99,19 @@ pub async fn start_controller(
 }
 
 impl Context {
-    fn create_and_send_next_eval_job(&mut self, eval_job_sender: Sender<IndividualEvalJob>) {
+    async fn create_and_send_next_eval_job(&mut self, eval_job_sender: Sender<IndividualEvalJob>) {
         let individual = if self.initial_value_job_sent {
-            self.createOffspring()
+            self.create_offspring()
         } else {
             self.initial_value.clone()
         };
 
         let eval_job = IndividualEvalJob { individual };
 
-        eval_job_sender.send(eval_job);
+        eval_job_sender.send(eval_job).ok();
     }
 
-    fn createOffspring(&self) -> Value {
+    fn create_offspring(&self) -> Value {
         self.initial_value.clone()
     }
 }

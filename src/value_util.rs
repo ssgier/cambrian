@@ -40,7 +40,6 @@ fn build_node(
             ref value_type,
             ..
         } => build_anon_map(json_val, *optional, value_type, path),
-        spec::Node::ConstInt(_) => panic!("unsupported"),
     }
 }
 

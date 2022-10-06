@@ -17,11 +17,13 @@ pub enum Node {
 
 impl Value {
     pub fn to_json(&self) -> serde_json::Value {
-        Self::node_to_json(&self.0)
+        self.0.to_json()
     }
+}
 
-    fn node_to_json(node: &Node) -> serde_json::Value {
-        match node {
+impl Node {
+    pub fn to_json(&self) -> serde_json::Value {
+        match self {
             Node::Real(number) => serde_json::Value::Number(Number::from_f64(*number).unwrap()),
             Node::Int(number) => serde_json::Value::Number(Number::from(*number)),
             Node::Bool(val) => serde_json::Value::Bool(*val),
@@ -34,7 +36,7 @@ impl Value {
         let mut out_mapping = serde_json::Map::new();
         for (key, val) in map {
             let out_key = key.to_string();
-            let out_val = Self::node_to_json(val);
+            let out_val = val.to_json();
             out_mapping.insert(out_key, out_val);
         }
         serde_json::Value::Object(out_mapping)
@@ -48,7 +50,7 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn example() {
+    fn scenario() {
         let value = Value(Node::Sub(HashMap::from([
             ("a".to_string(), Box::new(Node::Real(2.0))),
             ("b".to_string(), Box::new(Node::Int(1))),

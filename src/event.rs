@@ -1,7 +1,5 @@
-use crate::error::Error;
 use crate::value::Value;
-use finite::FiniteF64;
-use futures::channel::oneshot::{self, Receiver, Sender};
+use futures::channel::oneshot::Sender;
 
 pub struct IndividualEvalJob {
     pub individual: Value,
