@@ -1,8 +1,4 @@
-use crate::{
-    meta::{CrossoverParams, MutationParams},
-    path::PathNode,
-};
-use std::collections::HashMap;
+use crate::meta::{CrossoverParams, MutationParams};
 
 struct CrossoverRescaling {
     pub crossover_prob_factor: f64,
@@ -13,9 +9,27 @@ struct MutationRescaling {
     pub mutation_scale_factor: f64,
 }
 
+#[derive(Default)]
 pub struct Rescaling {
     crossover_rescaling: CrossoverRescaling,
     mutation_rescaling: MutationRescaling,
+}
+
+impl Default for CrossoverRescaling {
+    fn default() -> Self {
+        Self {
+            crossover_prob_factor: 1.0,
+        }
+    }
+}
+
+impl Default for MutationRescaling {
+    fn default() -> Self {
+        Self {
+            mutation_prob_factor: 1.0,
+            mutation_scale_factor: 1.0,
+        }
+    }
 }
 
 impl Rescaling {
@@ -33,24 +47,7 @@ impl Rescaling {
     }
 }
 
-pub struct RescalingManager {
-    factors_by_path_id: HashMap<usize, Rescaling>,
-}
-
-impl Default for RescalingManager {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl RescalingManager {
-    pub fn new() -> Self {
-        Self {
-            factors_by_path_id: HashMap::new(),
-        }
-    }
-
-    pub fn get_for_path_node(&self, path_node: &PathNode) -> &Rescaling {
-        self.factors_by_path_id.get(&path_node.id).unwrap()
-    }
+#[derive(Default)]
+pub struct RescalingContext {
+    pub current_rescaling: Rescaling,
 }

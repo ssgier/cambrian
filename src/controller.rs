@@ -9,7 +9,6 @@ use crate::meta::AlgoParams;
 use crate::meta::CrossoverParams;
 use crate::meta::MutationParams;
 use crate::path::PathManager;
-use crate::rescaling::RescalingManager;
 use crate::spec::Spec;
 use crate::value::Value;
 use derivative::Derivative;
@@ -39,7 +38,6 @@ struct Context<'a> {
 impl<'a> Context<'a> {
     fn new(
         path_manager: &'a RefCell<PathManager>,
-        rescaling_manager: &'a RefCell<RescalingManager>,
         spec: &'a Spec,
         algo_params: AlgoParams,
         init_crossover_params: CrossoverParams,
@@ -55,7 +53,7 @@ impl<'a> Context<'a> {
             initial_value_job_sent: false,
             crossover_params: init_crossover_params,
             _mutation_params: init_mutation_params,
-            crossover: Crossover::new(path_manager, rescaling_manager, spec, rng),
+            crossover: Crossover::new(path_manager, spec, rng),
         }
     }
 }
@@ -79,10 +77,8 @@ pub async fn start_controller(
     // TODO have the context own the following objects
     let rng = RefCell::new(StdRng::seed_from_u64(0));
     let path_manager = RefCell::new(PathManager::new());
-    let rescaling_manager = RefCell::new(RescalingManager::new());
     let mut ctx = Context::new(
         &path_manager,
-        &rescaling_manager,
         &spec,
         algo_params,
         init_crossover_params,
