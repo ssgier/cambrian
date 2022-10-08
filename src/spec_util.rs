@@ -9,6 +9,23 @@ pub fn from_yaml_str(yaml_str: &str) -> Result<Spec, Error> {
     Ok(Spec(build_node(&yaml_val, &root_path)?))
 }
 
+pub fn is_leaf(spec_node: &Node) -> bool {
+    match spec_node {
+        Node::Sub { .. } | Node::AnonMap { .. } => false,
+        Node::Bool { .. } | Node::Real { .. } | Node::Int { .. } => true,
+    }
+}
+
+pub fn is_optional(spec_node: &Node) -> bool {
+    match *spec_node {
+        Node::Bool { .. } => false,
+        Node::Real { optional, .. } => optional,
+        Node::Int { optional, .. } => optional,
+        Node::Sub { optional, .. } => optional,
+        Node::AnonMap { optional, .. } => optional,
+    }
+}
+
 fn build_node(yaml_val: &serde_yaml::Value, path: &[&str]) -> Result<Node, Error> {
     let mapping = match yaml_val {
         serde_yaml::Value::Mapping(mapping) => mapping,

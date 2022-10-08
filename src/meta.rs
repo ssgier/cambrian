@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 
 pub struct CrossoverParams {
+    // TODO: sanitize on instantiation
     pub crossover_prob: f64,
 }
 

@@ -1,3 +1,4 @@
+use crate::crossover::Crossover;
 use crate::error::Error;
 use crate::event::{
     ControllerEvent::{self, *},
@@ -7,7 +8,8 @@ use crate::message::Report;
 use crate::meta::AlgoParams;
 use crate::meta::CrossoverParams;
 use crate::meta::MutationParams;
-use crate::spawn;
+use crate::path::PathManager;
+use crate::rescaling::RescalingManager;
 use crate::spec::Spec;
 use crate::value::Value;
 use derivative::Derivative;
@@ -18,16 +20,44 @@ use futures::{
     channel::mpsc::{UnboundedReceiver, UnboundedSender},
     StreamExt,
 };
+use rand::rngs::StdRng;
+use rand::SeedableRng;
+use std::cell::RefCell;
 use std::collections::BTreeSet;
 
-struct Context {
-    spec: Spec,
-    algo_params: AlgoParams,
+struct Context<'a> {
+    _spec: &'a Spec,
+    _algo_params: AlgoParams,
     individuals_evaled: BTreeSet<EvaluatedIndividual>,
     initial_value: Value,
     initial_value_job_sent: bool,
     crossover_params: CrossoverParams,
-    mutation_params: MutationParams,
+    _mutation_params: MutationParams,
+    crossover: Crossover<'a>,
+}
+
+impl<'a> Context<'a> {
+    fn new(
+        path_manager: &'a RefCell<PathManager>,
+        rescaling_manager: &'a RefCell<RescalingManager>,
+        spec: &'a Spec,
+        algo_params: AlgoParams,
+        init_crossover_params: CrossoverParams,
+        init_mutation_params: MutationParams,
+        rng: &'a RefCell<StdRng>,
+    ) -> Self {
+        Self {
+            initial_value: spec.initial_value(),
+            _spec: spec,
+            _algo_params: algo_params,
+
+            individuals_evaled: BTreeSet::new(),
+            initial_value_job_sent: false,
+            crossover_params: init_crossover_params,
+            _mutation_params: init_mutation_params,
+            crossover: Crossover::new(path_manager, rescaling_manager, spec, rng),
+        }
+    }
 }
 
 #[derive(Derivative)]
@@ -46,20 +76,24 @@ pub async fn start_controller(
     mut recv: UnboundedReceiver<ControllerEvent>,
     mut report_sender: UnboundedSender<Report>,
 ) -> Result<Value, Error> {
-    let mut ctx = Context {
-        initial_value: spawn::initial_value(&spec),
-        spec,
+    // TODO have the context own the following objects
+    let rng = RefCell::new(StdRng::seed_from_u64(0));
+    let path_manager = RefCell::new(PathManager::new());
+    let rescaling_manager = RefCell::new(RescalingManager::new());
+    let mut ctx = Context::new(
+        &path_manager,
+        &rescaling_manager,
+        &spec,
         algo_params,
-        individuals_evaled: BTreeSet::new(),
-        initial_value_job_sent: false,
-        crossover_params: init_crossover_params,
-        mutation_params: init_mutation_params,
-    };
+        init_crossover_params,
+        init_mutation_params,
+        &rng,
+    );
 
     while let Some(event) = recv.next().await {
         match event {
             WorkerReady { eval_job_sender } => {
-                ctx.create_and_send_next_eval_job(eval_job_sender).await;
+                ctx.create_and_send_next_eval_job(eval_job_sender);
             }
             IndividualEvalCompleted {
                 obj_func_val,
@@ -76,17 +110,13 @@ pub async fn start_controller(
 
                 if let Some(obj_func_val) = obj_func_val {
                     if let Some(obj_func_val) = FiniteF64::new(obj_func_val) {
-                        ctx.individuals_evaled.insert(EvaluatedIndividual {
-                            obj_func_val,
-                            individual,
-                        });
+                        ctx.process_individual_eval(obj_func_val, individual);
                     } else {
                         return Err(Error::ObjFuncValMustBeFinite);
                     }
                 }
 
-                ctx.create_and_send_next_eval_job(next_eval_job_sender)
-                    .await;
+                ctx.create_and_send_next_eval_job(next_eval_job_sender);
             }
             TerminationCommand => break,
         }
@@ -98,8 +128,8 @@ pub async fn start_controller(
     }
 }
 
-impl Context {
-    async fn create_and_send_next_eval_job(&mut self, eval_job_sender: Sender<IndividualEvalJob>) {
+impl<'a> Context<'a> {
+    fn create_and_send_next_eval_job(&mut self, eval_job_sender: Sender<IndividualEvalJob>) {
         let individual = if self.initial_value_job_sent {
             self.create_offspring()
         } else {
@@ -112,6 +142,25 @@ impl Context {
     }
 
     fn create_offspring(&self) -> Value {
-        self.initial_value.clone()
+        let crossover_result = if self.individuals_evaled.is_empty() {
+            self.initial_value.clone()
+        } else {
+            let individuals_ordered: Vec<&Value> = self
+                .individuals_evaled
+                .iter()
+                .map(|ind| &ind.individual)
+                .collect();
+            self.crossover
+                .crossover(&individuals_ordered, &self.crossover_params)
+        };
+
+        crossover_result // TODO, mutation
+    }
+
+    fn process_individual_eval(&mut self, obj_func_val: FiniteF64, individual: Value) {
+        self.individuals_evaled.insert(EvaluatedIndividual {
+            obj_func_val,
+            individual,
+        });
     }
 }
