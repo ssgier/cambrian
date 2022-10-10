@@ -254,11 +254,11 @@ pub trait Selection {
 
 #[cfg(test)]
 mod tests {
-    use rand::SeedableRng;
-
-    use std::cell::Cell;
+    use crate::testutil::extract_from_value;
 
     use super::*;
+    use rand::SeedableRng;
+    use std::cell::Cell;
 
     struct SelectionMock<'a> {
         selected_indexes: &'a [usize],
@@ -453,19 +453,12 @@ mod tests {
 
         let sut = maker.make(&[0, 1]);
 
-        let allowed_value_0 = Value(value::Node::Sub(HashMap::from([
-            ("foo".to_string(), Box::new(value::Node::Bool(false))),
-            ("bar".to_string(), Box::new(value::Node::Bool(true))),
-        ])));
-
-        let allowed_value_1 = Value(value::Node::Sub(HashMap::from([
-            ("foo".to_string(), Box::new(value::Node::Bool(true))),
-            ("bar".to_string(), Box::new(value::Node::Bool(false))),
-        ])));
-
         let result = sut.crossover(&[&value0, &value1], &ALWAYS_CROSSOVER_PARAMS);
 
-        assert!(result == allowed_value_0 || result == allowed_value_1);
+        let value_foo = extract_from_value(&result, &["foo"]);
+        let value_bar = extract_from_value(&result, &["bar"]);
+
+        assert_ne!(value_foo, value_bar);
     }
 
     #[test]
@@ -498,19 +491,17 @@ mod tests {
 
         let sut = maker.make(&[0, 1]);
 
-        let allowed_value_0 = Value(value::Node::Sub(HashMap::from([(
-            "bar".to_string(),
-            Box::new(value::Node::Int(0)),
-        )])));
-
-        let allowed_value_1 = Value(value::Node::Sub(HashMap::from([(
-            "foo".to_string(),
-            Box::new(value::Node::Int(0)),
-        )])));
-
         let result = sut.crossover(&[&value0, &value1], &ALWAYS_CROSSOVER_PARAMS);
 
-        assert!(result == allowed_value_0 || result == allowed_value_1);
+        if let value::Node::Sub(mapping) = result.0 {
+            assert_eq!(mapping.len(), 1);
+            assert_eq!(
+                *mapping.values().next().unwrap().deref(),
+                value::Node::Int(0)
+            );
+        } else {
+            panic!();
+        }
     }
 
     #[test]
@@ -540,19 +531,12 @@ mod tests {
 
         let sut = maker.make(&[0, 0, 0, 1]);
 
-        let allowed_value_0 = Value(value::Node::AnonMap(HashMap::from([
-            (0, Box::new(value::Node::Bool(false))),
-            (1, Box::new(value::Node::Bool(true))),
-        ])));
-
-        let allowed_value_1 = Value(value::Node::AnonMap(HashMap::from([
-            (0, Box::new(value::Node::Bool(true))),
-            (1, Box::new(value::Node::Bool(false))),
-        ])));
-
         let result = sut.crossover(&[&value0, &value1], &ALWAYS_CROSSOVER_PARAMS);
 
-        assert!(result == allowed_value_0 || result == allowed_value_1);
+        let value0 = extract_from_value(&result, &["0"]);
+        let value1 = extract_from_value(&result, &["1"]);
+
+        assert_ne!(value0, value1);
     }
 
     #[test]
@@ -579,18 +563,16 @@ mod tests {
 
         let sut = maker.make(&[0, 1]);
 
-        let allowed_value_0 = Value(value::Node::AnonMap(HashMap::from([(
-            0,
-            Box::new(value::Node::Bool(true)),
-        )])));
-
-        let allowed_value_1 = Value(value::Node::AnonMap(HashMap::from([(
-            1,
-            Box::new(value::Node::Bool(true)),
-        )])));
-
         let result = sut.crossover(&[&value0, &value1], &ALWAYS_CROSSOVER_PARAMS);
 
-        assert!(result == allowed_value_0 || result == allowed_value_1);
+        if let value::Node::AnonMap(mapping) = result.0 {
+            assert_eq!(mapping.len(), 1);
+            assert_eq!(
+                *mapping.values().next().unwrap().deref(),
+                value::Node::Bool(true)
+            );
+        } else {
+            panic!();
+        }
     }
 }

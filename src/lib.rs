@@ -11,6 +11,8 @@ pub(crate) mod path;
 pub(crate) mod rescaling;
 pub mod spec;
 pub mod spec_util;
+#[cfg(test)]
+pub(crate) mod testutil;
 pub mod value;
 pub mod value_util;
 pub(crate) mod worker;
