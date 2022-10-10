@@ -1,18 +1,18 @@
 use crate::meta::{CrossoverParams, MutationParams};
 
-struct CrossoverRescaling {
+pub struct CrossoverRescaling {
     pub crossover_prob_factor: f64,
 }
 
-struct MutationRescaling {
+pub struct MutationRescaling {
     pub mutation_prob_factor: f64,
     pub mutation_scale_factor: f64,
 }
 
 #[derive(Default)]
 pub struct Rescaling {
-    crossover_rescaling: CrossoverRescaling,
-    mutation_rescaling: MutationRescaling,
+    pub crossover_rescaling: CrossoverRescaling,
+    pub mutation_rescaling: MutationRescaling,
 }
 
 impl Default for CrossoverRescaling {

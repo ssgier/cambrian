@@ -1,4 +1,5 @@
 use crate::path::{PathManager, PathNode};
+use itertools::Itertools;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
@@ -62,9 +63,19 @@ where
             .rescale_crossover(crossover_params);
 
         let select_none = || {
-            self.selection
-                .select_value(individuals_ordered, &crossover_params)
-                .is_none()
+            let presence_values: Vec<bool> = individuals_ordered
+                .iter()
+                .map(Option::is_none)
+                .unique()
+                .collect();
+
+            if presence_values.len() == 1 {
+                presence_values[0]
+            } else {
+                self.selection
+                    .select_value(individuals_ordered, &crossover_params)
+                    .is_none()
+            }
         };
 
         if is_optional && select_none() {
@@ -254,6 +265,8 @@ pub trait Selection {
 
 #[cfg(test)]
 mod tests {
+    use crate::path::testutil::set_rescaling_at_path;
+    use crate::rescaling::{CrossoverRescaling, MutationRescaling, Rescaling};
     use crate::testutil::extract_from_value;
 
     use super::*;
@@ -312,6 +325,15 @@ mod tests {
                 rng: &self.rng,
                 selection: SelectionMock::new(selection_indexes),
             }
+        }
+    }
+
+    fn no_crossover_rescaling() -> Rescaling {
+        Rescaling {
+            crossover_rescaling: CrossoverRescaling {
+                crossover_prob_factor: 0.0,
+            },
+            mutation_rescaling: MutationRescaling::default(),
         }
     }
 
@@ -529,7 +551,7 @@ mod tests {
         maker.path_manager.borrow_mut().add_all_nodes(&value0);
         maker.path_manager.borrow_mut().add_all_nodes(&value1);
 
-        let sut = maker.make(&[0, 0, 0, 1]);
+        let sut = maker.make(&[0, 1]);
 
         let result = sut.crossover(&[&value0, &value1], &ALWAYS_CROSSOVER_PARAMS);
 
@@ -574,5 +596,143 @@ mod tests {
         } else {
             panic!();
         }
+    }
+
+    #[test]
+    fn rescaling_at_root() {
+        let spec_str = "
+        foo:
+            type: bool
+            init: true
+        bar:
+            type: bool
+            init: true
+        ";
+
+        let value0 = Value(value::Node::Sub(HashMap::from([
+            ("foo".to_string(), Box::new(value::Node::Bool(false))),
+            ("bar".to_string(), Box::new(value::Node::Bool(false))),
+        ])));
+
+        let value1 = Value(value::Node::Sub(HashMap::from([
+            ("foo".to_string(), Box::new(value::Node::Bool(true))),
+            ("bar".to_string(), Box::new(value::Node::Bool(true))),
+        ])));
+
+        let spec = spec_util::from_yaml_str(spec_str).unwrap();
+
+        let maker = TestCrossoverMaker::from_spec(spec);
+        maker.path_manager.borrow_mut().add_all_nodes(&value0);
+        maker.path_manager.borrow_mut().add_all_nodes(&value1);
+
+        set_rescaling_at_path(
+            &mut maker.path_manager.borrow_mut(),
+            &[],
+            no_crossover_rescaling(),
+        );
+
+        let sut = maker.make(&[0]);
+
+        let result = sut.crossover(&[&value0, &value1], &ALWAYS_CROSSOVER_PARAMS);
+        let value_foo = extract_from_value(&result, &["foo"]);
+        let value_bar = extract_from_value(&result, &["bar"]);
+
+        assert_eq!(*value_foo, value::Node::Bool(false));
+        assert_eq!(*value_bar, value::Node::Bool(false));
+    }
+
+    #[test]
+    fn one_deep_crossover_by_rescaling() {
+        let spec_str = "
+        type: anon map
+        valueType:
+            foo:
+                type: bool
+                init: true
+            bar:
+                type: bool
+                init: true
+        ";
+
+        let value0 = Value(value::Node::AnonMap(HashMap::from([(
+            0,
+            Box::new(value::Node::Sub(HashMap::from([
+                ("foo".to_string(), Box::new(value::Node::Bool(false))),
+                ("bar".to_string(), Box::new(value::Node::Bool(false))),
+            ]))),
+        )])));
+
+        let value1 = Value(value::Node::AnonMap(HashMap::from([(
+            0,
+            Box::new(value::Node::Sub(HashMap::from([
+                ("foo".to_string(), Box::new(value::Node::Bool(true))),
+                ("bar".to_string(), Box::new(value::Node::Bool(true))),
+            ]))),
+        )])));
+
+        let spec = spec_util::from_yaml_str(spec_str).unwrap();
+
+        let maker = TestCrossoverMaker::from_spec(spec);
+        maker.path_manager.borrow_mut().add_all_nodes(&value0);
+        maker.path_manager.borrow_mut().add_all_nodes(&value1);
+
+        set_rescaling_at_path(
+            &mut maker.path_manager.borrow_mut(),
+            &[],
+            no_crossover_rescaling(),
+        );
+
+        let sut = maker.make(&[0]);
+
+        let result = sut.crossover(&[&value0, &value1], &ALWAYS_CROSSOVER_PARAMS);
+        let value_foo = extract_from_value(&result, &["0", "foo"]);
+        let value_bar = extract_from_value(&result, &["0", "bar"]);
+
+        assert_eq!(*value_foo, value::Node::Bool(false));
+        assert_eq!(*value_bar, value::Node::Bool(false));
+    }
+
+    #[test]
+    fn full_depth_crossover() {
+        let spec_str = "
+        type: anon map
+        valueType:
+            foo:
+                type: bool
+                init: true
+            bar:
+                type: bool
+                init: true
+        ";
+
+        let value0 = Value(value::Node::AnonMap(HashMap::from([(
+            0,
+            Box::new(value::Node::Sub(HashMap::from([
+                ("foo".to_string(), Box::new(value::Node::Bool(false))),
+                ("bar".to_string(), Box::new(value::Node::Bool(true))),
+            ]))),
+        )])));
+
+        let value1 = Value(value::Node::AnonMap(HashMap::from([(
+            0,
+            Box::new(value::Node::Sub(HashMap::from([
+                ("foo".to_string(), Box::new(value::Node::Bool(true))),
+                ("bar".to_string(), Box::new(value::Node::Bool(false))),
+            ]))),
+        )])));
+
+        let spec = spec_util::from_yaml_str(spec_str).unwrap();
+
+        let maker = TestCrossoverMaker::from_spec(spec);
+        maker.path_manager.borrow_mut().add_all_nodes(&value0);
+        maker.path_manager.borrow_mut().add_all_nodes(&value1);
+
+        let sut = maker.make(&[0, 1]);
+
+        let result = sut.crossover(&[&value0, &value1], &ALWAYS_CROSSOVER_PARAMS);
+        let value_foo = extract_from_value(&result, &["0", "foo"]);
+        let value_bar = extract_from_value(&result, &["0", "bar"]);
+
+        assert_eq!(*value_foo, *value_bar);
     }
 }

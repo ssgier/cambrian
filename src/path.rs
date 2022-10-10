@@ -1,5 +1,5 @@
 use crate::rescaling::RescalingContext;
-use crate::value::{self};
+use crate::value;
 use std::collections::HashMap;
 
 pub struct PathNode {
@@ -89,6 +89,41 @@ impl PathManager {
                 }
             }
             value::Node::Real(_) | value::Node::Int(_) | value::Node::Bool(_) => (),
+        }
+    }
+}
+
+#[cfg(test)]
+pub mod testutil {
+    use std::usize;
+
+    use crate::rescaling::Rescaling;
+
+    use super::*;
+    pub fn set_rescaling_at_path(path_mgr: &mut PathManager, path: &[&str], rescaling: Rescaling) {
+        set_rescaling_at_path_relative(path_mgr, path_mgr.root().id, path, rescaling);
+    }
+
+    fn set_rescaling_at_path_relative(
+        path_mgr: &mut PathManager,
+        from_node_id: usize,
+        path: &[&str],
+        rescaling: Rescaling,
+    ) {
+        match path.first() {
+            Some(head) => {
+                let node = path_mgr.nodes_by_id.get(&from_node_id).unwrap();
+                set_rescaling_at_path_relative(
+                    path_mgr,
+                    *node.child_ids_by_key.get(*head).expect("Invalid path"),
+                    &path[1..],
+                    rescaling,
+                );
+            }
+            None => {
+                let node = path_mgr.nodes_by_id.get_mut(&from_node_id).unwrap();
+                node.rescaling_ctx.current_rescaling = rescaling;
+            }
         }
     }
 }
