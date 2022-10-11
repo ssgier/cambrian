@@ -9,6 +9,7 @@ pub mod meta;
 pub mod mutation;
 pub(crate) mod path;
 pub(crate) mod rescaling;
+pub(crate) mod selection;
 pub mod spec;
 pub mod spec_util;
 #[cfg(test)]

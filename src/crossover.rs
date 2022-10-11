@@ -1,4 +1,6 @@
 use crate::path::{PathManager, PathNode};
+use crate::selection::Selection;
+use crate::selection::SelectionImpl;
 use itertools::Itertools;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -21,7 +23,7 @@ impl<'a> Crossover<'a, SelectionImpl<'a>> {
             path_manager,
             spec,
             rng,
-            selection: SelectionImpl { _rng: rng },
+            selection: SelectionImpl::new(rng),
         }
     }
 }
@@ -240,41 +242,6 @@ pub struct Crossover<'a, S: Selection = SelectionImpl<'a>> {
     spec: &'a Spec,
     rng: &'a RefCell<StdRng>,
     selection: S,
-}
-
-pub struct SelectionImpl<'a> {
-    _rng: &'a RefCell<StdRng>,
-}
-
-impl Selection for SelectionImpl<'_> {
-    fn select_ref<'a, T>(
-        &self,
-        _individuals_ordered: &[&'a T],
-        crossover_params: &CrossoverParams,
-    ) -> &'a T {
-        if crossover_params.selection_pressure <= 0.0 {
-            panic!("Selection pressure must be strictly positive");
-        }
-        panic!("not implemented"); // TODO, adaptive params here as well
-    }
-}
-
-pub trait Selection {
-    fn select_ref<'a, T>(
-        &self,
-        individuals_ordered: &[&'a T],
-        crossover_params: &CrossoverParams,
-    ) -> &'a T;
-
-    fn select_value<T: Clone>(
-        &self,
-        individuals_ordered: &[T],
-        crossover_params: &CrossoverParams,
-    ) -> T {
-        let individuals_ordered: Vec<&T> = individuals_ordered.iter().collect();
-        self.select_ref(&individuals_ordered, crossover_params)
-            .clone()
-    }
 }
 
 #[cfg(test)]
