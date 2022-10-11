@@ -57,38 +57,42 @@ where
         crossover_params: &CrossoverParams,
         path_node: &PathNode,
     ) -> Option<value::Node> {
-        let crossover_params = path_node
-            .rescaling_ctx
-            .current_rescaling
-            .rescale_crossover(crossover_params);
+        if individuals_ordered.len() > 1 {
+            let crossover_params = path_node
+                .rescaling_ctx
+                .current_rescaling
+                .rescale_crossover(crossover_params);
 
-        let select_none = || {
-            let presence_values: Vec<bool> = individuals_ordered
-                .iter()
-                .map(Option::is_none)
-                .unique()
-                .collect();
+            let select_none = || {
+                let presence_values: Vec<bool> = individuals_ordered
+                    .iter()
+                    .map(Option::is_none)
+                    .unique()
+                    .collect();
 
-            if presence_values.len() == 1 {
-                presence_values[0]
+                if presence_values.len() == 1 {
+                    presence_values[0]
+                } else {
+                    self.selection
+                        .select_value(individuals_ordered, &crossover_params)
+                        .is_none()
+                }
+            };
+
+            if is_optional && select_none() {
+                None
             } else {
-                self.selection
-                    .select_value(individuals_ordered, &crossover_params)
-                    .is_none()
+                let individuals_ordered: Vec<&value::Node> =
+                    individuals_ordered.iter().filter_map(|v| *v).collect();
+                Some(self.do_crossover_value_present(
+                    spec_node,
+                    &individuals_ordered,
+                    &crossover_params,
+                    path_node,
+                ))
             }
-        };
-
-        if is_optional && select_none() {
-            None
         } else {
-            let individuals_ordered: Vec<&value::Node> =
-                individuals_ordered.iter().filter_map(|v| *v).collect();
-            Some(self.do_crossover_value_present(
-                spec_node,
-                &individuals_ordered,
-                &crossover_params,
-                path_node,
-            ))
+            individuals_ordered[0].cloned()
         }
     }
 
@@ -99,31 +103,38 @@ where
         crossover_params: &CrossoverParams,
         path_node: &PathNode,
     ) -> value::Node {
-        let decide_to_crossover = || {
-            Bernoulli::new(crossover_params.crossover_prob)
-                .unwrap()
-                .sample(&mut *self.rng.borrow_mut())
-        };
+        if individuals_ordered.len() > 1 {
+            let decide_to_crossover = || {
+                Bernoulli::new(crossover_params.crossover_prob)
+                    .unwrap()
+                    .sample(&mut *self.rng.borrow_mut())
+            };
 
-        if spec_util::is_leaf(spec_node) || !decide_to_crossover() {
-            self.selection
-                .select_ref(individuals_ordered, crossover_params)
-                .clone()
-        } else {
-            match spec_node {
-                spec::Node::Sub { map: spec_map, .. } => {
-                    self.crossover_sub(spec_map, individuals_ordered, crossover_params, path_node)
-                }
-                spec::Node::AnonMap { value_type, .. } => self.crossover_anon_map(
-                    value_type,
-                    individuals_ordered,
-                    crossover_params,
-                    path_node,
-                ),
-                spec::Node::Int { .. } | spec::Node::Real { .. } | spec::Node::Bool { .. } => {
-                    panic!()
+            if spec_util::is_leaf(spec_node) || !decide_to_crossover() {
+                self.selection
+                    .select_ref(individuals_ordered, crossover_params)
+                    .clone()
+            } else {
+                match spec_node {
+                    spec::Node::Sub { map: spec_map, .. } => self.crossover_sub(
+                        spec_map,
+                        individuals_ordered,
+                        crossover_params,
+                        path_node,
+                    ),
+                    spec::Node::AnonMap { value_type, .. } => self.crossover_anon_map(
+                        value_type,
+                        individuals_ordered,
+                        crossover_params,
+                        path_node,
+                    ),
+                    spec::Node::Int { .. } | spec::Node::Real { .. } | spec::Node::Bool { .. } => {
+                        panic!()
+                    }
                 }
             }
+        } else {
+            individuals_ordered[0].clone()
         }
     }
 
@@ -239,8 +250,11 @@ impl Selection for SelectionImpl<'_> {
     fn select_ref<'a, T>(
         &self,
         _individuals_ordered: &[&'a T],
-        _crossover_params: &CrossoverParams,
+        crossover_params: &CrossoverParams,
     ) -> &'a T {
+        if crossover_params.selection_pressure <= 0.0 {
+            panic!("Selection pressure must be strictly positive");
+        }
         panic!("not implemented"); // TODO, adaptive params here as well
     }
 }
@@ -303,6 +317,23 @@ mod tests {
         }
     }
 
+    struct PressureAwareSelectionMock {}
+
+    impl Selection for PressureAwareSelectionMock {
+        fn select_ref<'b, T>(
+            &self,
+            individuals_ordered: &[&'b T],
+            crossover_params: &CrossoverParams,
+        ) -> &'b T {
+            let target_idx = if crossover_params.selection_pressure > 0.5 {
+                0
+            } else {
+                1
+            };
+            individuals_ordered[target_idx]
+        }
+    }
+
     struct TestCrossoverMaker {
         path_manager: RefCell<PathManager>,
         spec: Spec,
@@ -326,23 +357,43 @@ mod tests {
                 selection: SelectionMock::new(selection_indexes),
             }
         }
+
+        fn make_with_pressure_aware_selection(
+            &'_ self,
+        ) -> Crossover<'_, PressureAwareSelectionMock> {
+            Crossover {
+                path_manager: &self.path_manager,
+                spec: &self.spec,
+                rng: &self.rng,
+                selection: PressureAwareSelectionMock {},
+            }
+        }
     }
 
-    fn no_crossover_rescaling() -> Rescaling {
+    const SELECT_0: f64 = 1.0;
+    const SELECT_1: f64 = 0.0;
+    fn make_rescaling(crossover_prob_factor: f64, selection_pressure_factor: f64) -> Rescaling {
         Rescaling {
             crossover_rescaling: CrossoverRescaling {
-                crossover_prob_factor: 0.0,
+                crossover_prob_factor,
+                selection_pressure_factor,
             },
             mutation_rescaling: MutationRescaling::default(),
         }
     }
 
+    fn no_crossover_rescaling() -> Rescaling {
+        make_rescaling(0.0, 1.0)
+    }
+
     const ALWAYS_CROSSOVER_PARAMS: CrossoverParams = CrossoverParams {
         crossover_prob: 1.0,
+        selection_pressure: 1.0,
     };
 
     const NEVER_CROSSOVER_PARAMS: CrossoverParams = CrossoverParams {
         crossover_prob: 0.0,
+        selection_pressure: 1.0,
     };
 
     #[test]
@@ -734,5 +785,110 @@ mod tests {
         let value_bar = extract_from_value(&result, &["0", "bar"]);
 
         assert_eq!(*value_foo, *value_bar);
+    }
+
+    #[test]
+    fn complex_scenario() {
+        let spec_str = "
+        foo_sub:
+            a:
+                type: anon map
+                valueType:
+                    type: bool
+            b:
+                type: int
+                optional: true
+                init: 0
+                scale: 1
+        foo:
+            type: int
+            optional: true
+            init: 0
+            scale: 1
+        bar:
+            type: int
+            optional: true
+            init: 0
+            scale: 1
+        ";
+
+        let value0 = Value(value::Node::Sub(HashMap::from([
+            (
+                "foo_sub".to_string(),
+                Box::new(value::Node::Sub(HashMap::from([
+                    (
+                        "a".to_string(),
+                        Box::new(value::Node::AnonMap(HashMap::from([
+                            (0, Box::new(value::Node::Bool(false))),
+                            (1, Box::new(value::Node::Bool(true))),
+                        ]))),
+                    ),
+                    ("b".to_string(), Box::new(value::Node::Int(5))),
+                ]))),
+            ),
+            ("foo".to_string(), Box::new(value::Node::Int(3))),
+        ])));
+
+        let value1 = Value(value::Node::Sub(HashMap::from([
+            (
+                "foo_sub".to_string(),
+                Box::new(value::Node::Sub(HashMap::from([(
+                    "a".to_string(),
+                    Box::new(value::Node::AnonMap(HashMap::from([
+                        (0, Box::new(value::Node::Bool(true))),
+                        (1, Box::new(value::Node::Bool(false))),
+                    ]))),
+                )]))),
+            ),
+            ("bar".to_string(), Box::new(value::Node::Int(4))),
+        ])));
+
+        let spec = spec_util::from_yaml_str(spec_str).unwrap();
+
+        let maker = TestCrossoverMaker::from_spec(spec);
+        maker.path_manager.borrow_mut().add_all_nodes(&value0);
+        maker.path_manager.borrow_mut().add_all_nodes(&value1);
+
+        {
+            let path_mgr_ref = &mut maker.path_manager.borrow_mut();
+
+            // do not explicitly prevent crossover, but select presence value of individual one, which
+            // is none
+            set_rescaling_at_path(
+                path_mgr_ref,
+                &["foo_sub", "b"],
+                make_rescaling(1.0, SELECT_1),
+            );
+
+            // stop crossover here, select individual 1
+            set_rescaling_at_path(
+                path_mgr_ref,
+                &["foo_sub", "a"],
+                make_rescaling(0.0, SELECT_0),
+            );
+
+            set_rescaling_at_path(path_mgr_ref, &["foo"], make_rescaling(1.0, SELECT_0));
+
+            set_rescaling_at_path(path_mgr_ref, &["bar"], make_rescaling(1.0, SELECT_1));
+        }
+
+        let sut = maker.make_with_pressure_aware_selection();
+
+        let result = sut.crossover(&[&value0, &value1], &ALWAYS_CROSSOVER_PARAMS);
+        let value_a0 = extract_from_value(&result, &["foo_sub", "a", "0"]);
+        let value_a1 = extract_from_value(&result, &["foo_sub", "a", "1"]);
+        let value_at_foo = extract_from_value(&result, &["foo"]);
+        let value_at_bar = extract_from_value(&result, &["bar"]);
+
+        let foo_sub_value = extract_from_value(&result, &["foo_sub"]);
+        match foo_sub_value {
+            value::Node::Sub(mapping) => assert_eq!(mapping.len(), 1),
+            _ => panic!(),
+        }
+
+        assert_eq!(*value_a0, value::Node::Bool(false));
+        assert_eq!(*value_a1, value::Node::Bool(true));
+        assert_eq!(*value_at_foo, value::Node::Int(3));
+        assert_eq!(*value_at_bar, value::Node::Int(4));
     }
 }

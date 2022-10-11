@@ -2,6 +2,7 @@ use crate::rescaling::RescalingContext;
 use crate::value;
 use std::collections::HashMap;
 
+#[derive(Debug)]
 pub struct PathNode {
     pub id: usize,
     child_ids_by_key: HashMap<String, usize>,
@@ -18,6 +19,7 @@ impl PathNode {
     }
 }
 
+#[derive(Debug)]
 pub struct PathManager {
     nodes_by_id: HashMap<usize, PathNode>,
     next_id: usize,
@@ -78,13 +80,35 @@ impl PathManager {
         match value_node {
             value::Node::Sub(mapping) => {
                 for (key, child_value_node) in mapping {
-                    let child_node_id = self.add_node(parent_node_id, key).id;
+                    let child_node_id = match self
+                        .nodes_by_id
+                        .get_mut(&parent_node_id)
+                        .unwrap()
+                        .child_ids_by_key
+                        .get(key)
+                    {
+                        Some(child_node_id) => *child_node_id,
+                        None => self.add_node(parent_node_id, key).id,
+                    };
+
                     self.add_all_nodes_at(child_node_id, child_value_node);
                 }
             }
             value::Node::AnonMap(mapping) => {
                 for (key, child_value_node) in mapping {
-                    let child_node_id = self.add_node(parent_node_id, &key.to_string()).id;
+                    let key_str = key.to_string();
+
+                    let child_node_id = match self
+                        .nodes_by_id
+                        .get_mut(&parent_node_id)
+                        .unwrap()
+                        .child_ids_by_key
+                        .get(&key_str)
+                    {
+                        Some(child_node_id) => *child_node_id,
+                        None => self.add_node(parent_node_id, &key_str).id,
+                    };
+
                     self.add_all_nodes_at(child_node_id, child_value_node);
                 }
             }
@@ -176,5 +200,38 @@ mod tests {
 
         let foo_child = sut.child_of(foo, "4");
         assert!(foo_child.child_ids_by_key.is_empty());
+    }
+
+    #[test]
+    fn partially_overlapping_paths() {
+        let value0 = value::Value(value::Node::Sub(HashMap::from([(
+            "foo".to_string(),
+            Box::new(value::Node::AnonMap(HashMap::from([(
+                4,
+                Box::new(value::Node::Real(10.0)),
+            )]))),
+        )])));
+
+        let value1 = value::Value(value::Node::Sub(HashMap::from([(
+            "foo".to_string(),
+            Box::new(value::Node::AnonMap(HashMap::from([(
+                5,
+                Box::new(value::Node::Real(10.0)),
+            )]))),
+        )])));
+
+        let mut sut = PathManager::new();
+        sut.add_all_nodes(&value0);
+        sut.add_all_nodes(&value1);
+
+        assert_eq!(sut.nodes_by_id.len(), 4);
+
+        let foo = sut.child_of_by_id(sut.root().id, "foo");
+        assert_eq!(foo.child_ids_by_key.len(), 2);
+        for key in ["4", "5"] {
+            assert!(foo.child_ids_by_key.contains_key(key));
+            let foo_child = sut.child_of(foo, key);
+            assert!(foo_child.child_ids_by_key.is_empty());
+        }
     }
 }
