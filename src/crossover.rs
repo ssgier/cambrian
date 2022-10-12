@@ -1,8 +1,7 @@
-use crate::path::{PathManager, PathNode};
+use crate::path::{Path, PathNode};
 use crate::selection::Selection;
 use crate::selection::SelectionImpl;
 use itertools::Itertools;
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 
@@ -13,17 +12,11 @@ use crate::meta::CrossoverParams;
 use crate::spec_util;
 use crate::{spec, spec::Spec, value, value::Value};
 
-impl<'a> Crossover<'a, SelectionImpl<'a>> {
-    pub fn new(
-        path_manager: &'a RefCell<PathManager>,
-        spec: &'a Spec,
-        rng: &'a RefCell<StdRng>,
-    ) -> Self {
+impl<'a> Crossover<'a, SelectionImpl> {
+    pub fn new(spec: &'a Spec) -> Self {
         Self {
-            path_manager,
             spec,
-            rng,
-            selection: SelectionImpl::new(rng),
+            selection: SelectionImpl::new(),
         }
     }
 }
@@ -36,6 +29,8 @@ where
         &self,
         individuals_ordered: &[&Value],
         crossover_params: &CrossoverParams,
+        path: &mut Path,
+        rng: &mut StdRng,
     ) -> Value {
         let individuals_ordered: Vec<Option<&value::Node>> =
             individuals_ordered.iter().map(|v| Some(&v.0)).collect();
@@ -45,7 +40,8 @@ where
                 &self.spec.0,
                 &individuals_ordered,
                 crossover_params,
-                self.path_manager.borrow().root(),
+                &mut path.0,
+                rng,
             )
             .unwrap(),
         )
@@ -57,7 +53,8 @@ where
         spec_node: &spec::Node,
         individuals_ordered: &[Option<&value::Node>],
         crossover_params: &CrossoverParams,
-        path_node: &PathNode,
+        path_node: &mut PathNode,
+        rng: &mut StdRng,
     ) -> Option<value::Node> {
         if individuals_ordered.len() > 1 {
             let crossover_params = path_node
@@ -65,7 +62,7 @@ where
                 .current_rescaling
                 .rescale_crossover(crossover_params);
 
-            let select_none = || {
+            let mut select_none = || {
                 let presence_values: Vec<bool> = individuals_ordered
                     .iter()
                     .map(Option::is_none)
@@ -76,7 +73,7 @@ where
                     presence_values[0]
                 } else {
                     self.selection
-                        .select_value(individuals_ordered, &crossover_params)
+                        .select_value(individuals_ordered, &crossover_params, path_node, rng)
                         .is_none()
                 }
             };
@@ -91,6 +88,7 @@ where
                     &individuals_ordered,
                     &crossover_params,
                     path_node,
+                    rng,
                 ))
             }
         } else {
@@ -103,18 +101,19 @@ where
         spec_node: &spec::Node,
         individuals_ordered: &[&value::Node],
         crossover_params: &CrossoverParams,
-        path_node: &PathNode,
+        path_node: &mut PathNode,
+        rng: &mut StdRng,
     ) -> value::Node {
         if individuals_ordered.len() > 1 {
-            let decide_to_crossover = || {
+            let mut decide_to_crossover = || {
                 Bernoulli::new(crossover_params.crossover_prob)
                     .unwrap()
-                    .sample(&mut *self.rng.borrow_mut())
+                    .sample(rng)
             };
 
             if spec_util::is_leaf(spec_node) || !decide_to_crossover() {
                 self.selection
-                    .select_ref(individuals_ordered, crossover_params)
+                    .select_ref(individuals_ordered, crossover_params, path_node, rng)
                     .clone()
             } else {
                 match spec_node {
@@ -123,12 +122,14 @@ where
                         individuals_ordered,
                         crossover_params,
                         path_node,
+                        rng,
                     ),
                     spec::Node::AnonMap { value_type, .. } => self.crossover_anon_map(
                         value_type,
                         individuals_ordered,
                         crossover_params,
                         path_node,
+                        rng,
                     ),
                     spec::Node::Int { .. } | spec::Node::Real { .. } | spec::Node::Bool { .. } => {
                         panic!()
@@ -145,13 +146,13 @@ where
         spec_map: &HashMap<String, Box<spec::Node>>,
         individuals_ordered: &[&value::Node],
         crossover_params: &CrossoverParams,
-        path_node: &PathNode,
+        path_node: &mut PathNode,
+        rng: &mut StdRng,
     ) -> value::Node {
         let result_value_map: HashMap<String, Box<value::Node>> = spec_map
             .iter()
             .map(|(key, child_spec_node)| {
-                let path_manager = self.path_manager.borrow();
-                let child_path_node = path_manager.child_of(path_node, key);
+                let child_path_node = path_node.get_child_mut(key);
 
                 let child_values: Vec<Option<&value::Node>> = individuals_ordered
                     .iter()
@@ -172,6 +173,7 @@ where
                         &child_values,
                         crossover_params,
                         child_path_node,
+                        rng,
                     ),
                 )
             })
@@ -188,7 +190,8 @@ where
         value_type: &spec::Node,
         individuals_ordered: &[&value::Node],
         crossover_params: &CrossoverParams,
-        path_node: &PathNode,
+        path_node: &mut PathNode,
+        rng: &mut StdRng,
     ) -> value::Node {
         let all_keys: HashSet<&usize> = individuals_ordered
             .iter()
@@ -204,8 +207,7 @@ where
         let result_value_map: HashMap<usize, Box<value::Node>> = all_keys
             .iter()
             .map(|key| {
-                let path_manager = self.path_manager.borrow();
-                let child_path_node = path_manager.child_of(path_node, &key.to_string());
+                let child_path_node = path_node.get_child_mut(&key.to_string());
                 let child_values: Vec<Option<&value::Node>> = individuals_ordered
                     .iter()
                     .map(|individual| {
@@ -225,6 +227,7 @@ where
                         &child_values,
                         crossover_params,
                         child_path_node,
+                        rng,
                     ),
                 )
             })
@@ -237,10 +240,8 @@ where
     }
 }
 
-pub struct Crossover<'a, S: Selection = SelectionImpl<'a>> {
-    path_manager: &'a RefCell<PathManager>,
+pub struct Crossover<'a, S: Selection = SelectionImpl> {
     spec: &'a Spec,
-    rng: &'a RefCell<StdRng>,
     selection: S,
 }
 
@@ -273,6 +274,8 @@ mod tests {
             &self,
             individuals_ordered: &[&'b T],
             _crossover_params: &CrossoverParams,
+            _path_node: &mut PathNode,
+            _rng: &mut StdRng,
         ) -> &'b T {
             if individuals_ordered.len() == 1 {
                 individuals_ordered[0]
@@ -291,6 +294,8 @@ mod tests {
             &self,
             individuals_ordered: &[&'b T],
             crossover_params: &CrossoverParams,
+            _path_node: &mut PathNode,
+            _rng: &mut StdRng,
         ) -> &'b T {
             let target_idx = if crossover_params.selection_pressure > 0.5 {
                 0
@@ -302,25 +307,17 @@ mod tests {
     }
 
     struct TestCrossoverMaker {
-        path_manager: RefCell<PathManager>,
         spec: Spec,
-        rng: RefCell<StdRng>,
     }
 
     impl TestCrossoverMaker {
         fn from_spec(spec: Spec) -> Self {
-            Self {
-                path_manager: RefCell::new(PathManager::new()),
-                spec,
-                rng: RefCell::new(StdRng::seed_from_u64(0)),
-            }
+            Self { spec }
         }
 
         fn make<'a>(&'a self, selection_indexes: &'a [usize]) -> Crossover<'a, SelectionMock<'a>> {
             Crossover {
-                path_manager: &self.path_manager,
                 spec: &self.spec,
-                rng: &self.rng,
                 selection: SelectionMock::new(selection_indexes),
             }
         }
@@ -329,9 +326,7 @@ mod tests {
             &'_ self,
         ) -> Crossover<'_, PressureAwareSelectionMock> {
             Crossover {
-                path_manager: &self.path_manager,
                 spec: &self.spec,
-                rng: &self.rng,
                 selection: PressureAwareSelectionMock {},
             }
         }
@@ -363,6 +358,10 @@ mod tests {
         selection_pressure: 1.0,
     };
 
+    fn make_rng() -> StdRng {
+        StdRng::seed_from_u64(0)
+    }
+
     #[test]
     fn leaf_real() {
         let spec_str = "
@@ -377,12 +376,20 @@ mod tests {
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
 
         let maker = TestCrossoverMaker::from_spec(spec);
-        maker.path_manager.borrow_mut().add_all_nodes(&value0);
-        maker.path_manager.borrow_mut().add_all_nodes(&value1);
+
+        let mut root_path_node = PathNode::default();
+        root_path_node.add_nodes_for(&value0.0);
+        root_path_node.add_nodes_for(&value1.0);
 
         let sut = maker.make(&[1]);
 
-        let result = sut.crossover(&[&value0, &value1], &ALWAYS_CROSSOVER_PARAMS);
+        let result = sut.crossover(
+            &[&value0, &value1],
+            &ALWAYS_CROSSOVER_PARAMS,
+            &mut Path(root_path_node),
+            &mut make_rng(),
+        );
+
         assert_eq!(result, value1);
     }
 
@@ -400,12 +407,19 @@ mod tests {
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
 
         let maker = TestCrossoverMaker::from_spec(spec);
-        maker.path_manager.borrow_mut().add_all_nodes(&value0);
-        maker.path_manager.borrow_mut().add_all_nodes(&value1);
+        let mut root_path_node = PathNode::default();
+        root_path_node.add_nodes_for(&value0.0);
+        root_path_node.add_nodes_for(&value1.0);
 
         let sut = maker.make(&[1]);
 
-        let result = sut.crossover(&[&value0, &value1], &ALWAYS_CROSSOVER_PARAMS);
+        let result = sut.crossover(
+            &[&value0, &value1],
+            &ALWAYS_CROSSOVER_PARAMS,
+            &mut Path(root_path_node),
+            &mut make_rng(),
+        );
+
         assert_eq!(result, value1);
     }
 
@@ -422,12 +436,19 @@ mod tests {
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
 
         let maker = TestCrossoverMaker::from_spec(spec);
-        maker.path_manager.borrow_mut().add_all_nodes(&value0);
-        maker.path_manager.borrow_mut().add_all_nodes(&value1);
+        let mut root_path_node = PathNode::default();
+        root_path_node.add_nodes_for(&value0.0);
+        root_path_node.add_nodes_for(&value1.0);
 
         let sut = maker.make(&[1]);
 
-        let result = sut.crossover(&[&value0, &value1], &ALWAYS_CROSSOVER_PARAMS);
+        let result = sut.crossover(
+            &[&value0, &value1],
+            &ALWAYS_CROSSOVER_PARAMS,
+            &mut Path(root_path_node),
+            &mut make_rng(),
+        );
+
         assert_eq!(result, value1);
     }
 
@@ -455,12 +476,19 @@ mod tests {
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
 
         let maker = TestCrossoverMaker::from_spec(spec);
-        maker.path_manager.borrow_mut().add_all_nodes(&value0);
-        maker.path_manager.borrow_mut().add_all_nodes(&value1);
+        let mut root_path_node = PathNode::default();
+        root_path_node.add_nodes_for(&value0.0);
+        root_path_node.add_nodes_for(&value1.0);
 
         let sut = maker.make(&[0, 1]);
 
-        let result = sut.crossover(&[&value0, &value1], &NEVER_CROSSOVER_PARAMS);
+        let result = sut.crossover(
+            &[&value0, &value1],
+            &NEVER_CROSSOVER_PARAMS,
+            &mut Path(root_path_node),
+            &mut make_rng(),
+        );
+
         assert_eq!(result, value0);
     }
 
@@ -488,12 +516,18 @@ mod tests {
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
 
         let maker = TestCrossoverMaker::from_spec(spec);
-        maker.path_manager.borrow_mut().add_all_nodes(&value0);
-        maker.path_manager.borrow_mut().add_all_nodes(&value1);
+        let mut root_path_node = PathNode::default();
+        root_path_node.add_nodes_for(&value0.0);
+        root_path_node.add_nodes_for(&value1.0);
 
         let sut = maker.make(&[0, 1]);
 
-        let result = sut.crossover(&[&value0, &value1], &ALWAYS_CROSSOVER_PARAMS);
+        let result = sut.crossover(
+            &[&value0, &value1],
+            &ALWAYS_CROSSOVER_PARAMS,
+            &mut Path(root_path_node),
+            &mut make_rng(),
+        );
 
         let value_foo = extract_from_value(&result, &["foo"]);
         let value_bar = extract_from_value(&result, &["bar"]);
@@ -526,12 +560,18 @@ mod tests {
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
 
         let maker = TestCrossoverMaker::from_spec(spec);
-        maker.path_manager.borrow_mut().add_all_nodes(&value0);
-        maker.path_manager.borrow_mut().add_all_nodes(&value1);
+        let mut root_path_node = PathNode::default();
+        root_path_node.add_nodes_for(&value0.0);
+        root_path_node.add_nodes_for(&value1.0);
 
         let sut = maker.make(&[0, 1]);
 
-        let result = sut.crossover(&[&value0, &value1], &ALWAYS_CROSSOVER_PARAMS);
+        let result = sut.crossover(
+            &[&value0, &value1],
+            &ALWAYS_CROSSOVER_PARAMS,
+            &mut Path(root_path_node),
+            &mut make_rng(),
+        );
 
         if let value::Node::Sub(mapping) = result.0 {
             assert_eq!(mapping.len(), 1);
@@ -566,12 +606,18 @@ mod tests {
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
 
         let maker = TestCrossoverMaker::from_spec(spec);
-        maker.path_manager.borrow_mut().add_all_nodes(&value0);
-        maker.path_manager.borrow_mut().add_all_nodes(&value1);
+        let mut root_path_node = PathNode::default();
+        root_path_node.add_nodes_for(&value0.0);
+        root_path_node.add_nodes_for(&value1.0);
 
         let sut = maker.make(&[0, 1]);
 
-        let result = sut.crossover(&[&value0, &value1], &ALWAYS_CROSSOVER_PARAMS);
+        let result = sut.crossover(
+            &[&value0, &value1],
+            &ALWAYS_CROSSOVER_PARAMS,
+            &mut Path(root_path_node),
+            &mut make_rng(),
+        );
 
         let value0 = extract_from_value(&result, &["0"]);
         let value1 = extract_from_value(&result, &["1"]);
@@ -598,12 +644,18 @@ mod tests {
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
 
         let maker = TestCrossoverMaker::from_spec(spec);
-        maker.path_manager.borrow_mut().add_all_nodes(&value0);
-        maker.path_manager.borrow_mut().add_all_nodes(&value1);
+        let mut root_path_node = PathNode::default();
+        root_path_node.add_nodes_for(&value0.0);
+        root_path_node.add_nodes_for(&value1.0);
 
         let sut = maker.make(&[0, 1]);
 
-        let result = sut.crossover(&[&value0, &value1], &ALWAYS_CROSSOVER_PARAMS);
+        let result = sut.crossover(
+            &[&value0, &value1],
+            &ALWAYS_CROSSOVER_PARAMS,
+            &mut Path(root_path_node),
+            &mut make_rng(),
+        );
 
         if let value::Node::AnonMap(mapping) = result.0 {
             assert_eq!(mapping.len(), 1);
@@ -640,18 +692,20 @@ mod tests {
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
 
         let maker = TestCrossoverMaker::from_spec(spec);
-        maker.path_manager.borrow_mut().add_all_nodes(&value0);
-        maker.path_manager.borrow_mut().add_all_nodes(&value1);
-
-        set_rescaling_at_path(
-            &mut maker.path_manager.borrow_mut(),
-            &[],
-            no_crossover_rescaling(),
-        );
+        let mut root_path_node = PathNode::default();
+        root_path_node.add_nodes_for(&value0.0);
+        root_path_node.add_nodes_for(&value1.0);
+        set_rescaling_at_path(&mut root_path_node, &[], no_crossover_rescaling());
 
         let sut = maker.make(&[0]);
 
-        let result = sut.crossover(&[&value0, &value1], &ALWAYS_CROSSOVER_PARAMS);
+        let result = sut.crossover(
+            &[&value0, &value1],
+            &ALWAYS_CROSSOVER_PARAMS,
+            &mut Path(root_path_node),
+            &mut make_rng(),
+        );
+
         let value_foo = extract_from_value(&result, &["foo"]);
         let value_bar = extract_from_value(&result, &["bar"]);
 
@@ -691,18 +745,20 @@ mod tests {
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
 
         let maker = TestCrossoverMaker::from_spec(spec);
-        maker.path_manager.borrow_mut().add_all_nodes(&value0);
-        maker.path_manager.borrow_mut().add_all_nodes(&value1);
-
-        set_rescaling_at_path(
-            &mut maker.path_manager.borrow_mut(),
-            &[],
-            no_crossover_rescaling(),
-        );
+        let mut root_path_node = PathNode::default();
+        root_path_node.add_nodes_for(&value0.0);
+        root_path_node.add_nodes_for(&value1.0);
+        set_rescaling_at_path(&mut root_path_node, &[], no_crossover_rescaling());
 
         let sut = maker.make(&[0]);
 
-        let result = sut.crossover(&[&value0, &value1], &ALWAYS_CROSSOVER_PARAMS);
+        let result = sut.crossover(
+            &[&value0, &value1],
+            &ALWAYS_CROSSOVER_PARAMS,
+            &mut Path(root_path_node),
+            &mut make_rng(),
+        );
+
         let value_foo = extract_from_value(&result, &["0", "foo"]);
         let value_bar = extract_from_value(&result, &["0", "bar"]);
 
@@ -742,12 +798,19 @@ mod tests {
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
 
         let maker = TestCrossoverMaker::from_spec(spec);
-        maker.path_manager.borrow_mut().add_all_nodes(&value0);
-        maker.path_manager.borrow_mut().add_all_nodes(&value1);
+        let mut root_path_node = PathNode::default();
+        root_path_node.add_nodes_for(&value0.0);
+        root_path_node.add_nodes_for(&value1.0);
 
         let sut = maker.make(&[0, 1]);
 
-        let result = sut.crossover(&[&value0, &value1], &ALWAYS_CROSSOVER_PARAMS);
+        let result = sut.crossover(
+            &[&value0, &value1],
+            &ALWAYS_CROSSOVER_PARAMS,
+            &mut Path(root_path_node),
+            &mut make_rng(),
+        );
+
         let value_foo = extract_from_value(&result, &["0", "foo"]);
         let value_bar = extract_from_value(&result, &["0", "bar"]);
 
@@ -813,35 +876,38 @@ mod tests {
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
 
         let maker = TestCrossoverMaker::from_spec(spec);
-        maker.path_manager.borrow_mut().add_all_nodes(&value0);
-        maker.path_manager.borrow_mut().add_all_nodes(&value1);
+        let mut root_path_node = PathNode::default();
+        root_path_node.add_nodes_for(&value0.0);
+        root_path_node.add_nodes_for(&value1.0);
 
-        {
-            let path_mgr_ref = &mut maker.path_manager.borrow_mut();
+        // do not explicitly prevent crossover, but select presence value of individual one, which
+        // is none
+        set_rescaling_at_path(
+            &mut root_path_node,
+            &["foo_sub", "b"],
+            make_rescaling(1.0, SELECT_1),
+        );
 
-            // do not explicitly prevent crossover, but select presence value of individual one, which
-            // is none
-            set_rescaling_at_path(
-                path_mgr_ref,
-                &["foo_sub", "b"],
-                make_rescaling(1.0, SELECT_1),
-            );
+        // stop crossover here, select individual 1
+        set_rescaling_at_path(
+            &mut root_path_node,
+            &["foo_sub", "a"],
+            make_rescaling(0.0, SELECT_0),
+        );
 
-            // stop crossover here, select individual 1
-            set_rescaling_at_path(
-                path_mgr_ref,
-                &["foo_sub", "a"],
-                make_rescaling(0.0, SELECT_0),
-            );
+        set_rescaling_at_path(&mut root_path_node, &["foo"], make_rescaling(1.0, SELECT_0));
 
-            set_rescaling_at_path(path_mgr_ref, &["foo"], make_rescaling(1.0, SELECT_0));
-
-            set_rescaling_at_path(path_mgr_ref, &["bar"], make_rescaling(1.0, SELECT_1));
-        }
+        set_rescaling_at_path(&mut root_path_node, &["bar"], make_rescaling(1.0, SELECT_1));
 
         let sut = maker.make_with_pressure_aware_selection();
 
-        let result = sut.crossover(&[&value0, &value1], &ALWAYS_CROSSOVER_PARAMS);
+        let result = sut.crossover(
+            &[&value0, &value1],
+            &ALWAYS_CROSSOVER_PARAMS,
+            &mut Path(root_path_node),
+            &mut make_rng(),
+        );
+
         let value_a0 = extract_from_value(&result, &["foo_sub", "a", "0"]);
         let value_a1 = extract_from_value(&result, &["foo_sub", "a", "1"]);
         let value_at_foo = extract_from_value(&result, &["foo"]);

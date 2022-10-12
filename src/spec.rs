@@ -14,7 +14,6 @@ pub enum Node {
         scale: f64,
         min: Option<f64>,
         max: Option<f64>,
-        prob_dist: RealProbDist,
     },
     Int {
         optional: bool,
@@ -22,7 +21,6 @@ pub enum Node {
         scale: f64,
         min: Option<i64>,
         max: Option<i64>,
-        prob_dist: IntProbDist,
     },
     Bool {
         init: bool,
@@ -38,18 +36,6 @@ pub enum Node {
         min_size: Option<usize>,
         max_size: Option<usize>,
     },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum RealProbDist {
-    Normal,
-    Exponential,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum IntProbDist {
-    Normal,
-    Uniform,
 }
 
 impl Spec {

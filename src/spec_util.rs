@@ -1,6 +1,6 @@
 use crate::common_util::format_path;
 use crate::error::Error;
-use crate::spec::{IntProbDist, Node, RealProbDist, Spec};
+use crate::spec::{Node, Spec};
 use std::collections::{HashMap, HashSet};
 
 pub fn from_yaml_str(yaml_str: &str) -> Result<Spec, Error> {
@@ -130,25 +130,12 @@ fn build_real(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Erro
     let scale = extract_real(mapping, "scale", path, true)?.unwrap_or(1.0);
     check_scale(scale, path)?;
 
-    let prob_dist = extract_string(mapping, "dist", path, false)?;
-    let prob_dist = match prob_dist.as_deref().unwrap_or("normal") {
-        "normal" => RealProbDist::Normal,
-        "exponential" => RealProbDist::Exponential,
-        unknown_value => {
-            return Err(Error::UnknownProbDist {
-                path_hint: format_path(path),
-                unknown_value: unknown_value.to_string(),
-            })
-        }
-    };
-
     Ok(Node::Real {
         optional,
         init,
         scale,
         min,
         max,
-        prob_dist,
     })
 }
 
@@ -195,25 +182,12 @@ fn build_int(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error
     let scale = extract_real(mapping, "scale", path, true)?.unwrap_or(1.0);
     check_scale(scale, path)?;
 
-    let prob_dist = extract_string(mapping, "dist", path, false)?;
-    let prob_dist = match prob_dist.as_deref().unwrap_or("normal") {
-        "normal" => IntProbDist::Normal,
-        "uniform" => IntProbDist::Uniform,
-        unknown_value => {
-            return Err(Error::UnknownProbDist {
-                path_hint: format_path(path),
-                unknown_value: unknown_value.to_string(),
-            })
-        }
-    };
-
     Ok(Node::Int {
         optional,
         init,
         scale,
         min,
         max,
-        prob_dist,
     })
 }
 
@@ -553,7 +527,6 @@ mod tests {
         scale: 0.1
         min: -1
         max: 1.6
-        dist: exponential
         ";
         assert!(matches!(
             from_yaml_str(yaml_str),
@@ -561,7 +534,6 @@ mod tests {
                 optional: true,
                 min: Some(min),
                 max: Some(max),
-                prob_dist: RealProbDist::Exponential,
                 init,
                 scale,
             })) if
@@ -658,27 +630,11 @@ mod tests {
                 optional: false,
                 min: None,
                 max: None,
-                prob_dist: RealProbDist::Normal,
                 init,
                 scale,
             })) if
             approx_eq!(f64, init, 0.0, F64Margin::default()) &&
             approx_eq!(f64, scale, 1.0, F64Margin::default())
-        ));
-    }
-
-    #[test]
-    fn unknown_prob_dist() {
-        let yaml_str = "
-        type: real
-        dist: Foo
-        init: 0.1
-        scale: 1.0
-        ";
-        assert!(matches!(
-            from_yaml_str(yaml_str),
-            Err(Error::UnknownProbDist { path_hint, unknown_value })
-            if path_hint == "(root)" && unknown_value == "Foo"
         ));
     }
 
@@ -715,7 +671,6 @@ mod tests {
                 optional: true,
                 min: Some(-1),
                 max: Some(10),
-                prob_dist: IntProbDist::Uniform,
                 init: 2,
                 scale,
             })) if
@@ -795,7 +750,6 @@ mod tests {
                 optional: false,
                 min: None,
                 max: None,
-                prob_dist: IntProbDist::Normal,
                 init: 0,
                 scale,
             })) if

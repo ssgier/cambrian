@@ -8,7 +8,7 @@ use crate::message::Report;
 use crate::meta::AlgoParams;
 use crate::meta::CrossoverParams;
 use crate::meta::MutationParams;
-use crate::path::PathManager;
+use crate::path::Path;
 use crate::spec::Spec;
 use crate::value::Value;
 use derivative::Derivative;
@@ -21,7 +21,6 @@ use futures::{
 };
 use rand::rngs::StdRng;
 use rand::SeedableRng;
-use std::cell::RefCell;
 use std::collections::BTreeSet;
 
 struct Context<'a> {
@@ -33,16 +32,16 @@ struct Context<'a> {
     crossover_params: CrossoverParams,
     _mutation_params: MutationParams,
     crossover: Crossover<'a>,
+    path: Path,
+    rng: StdRng,
 }
 
 impl<'a> Context<'a> {
     fn new(
-        path_manager: &'a RefCell<PathManager>,
         spec: &'a Spec,
         algo_params: AlgoParams,
         init_crossover_params: CrossoverParams,
         init_mutation_params: MutationParams,
-        rng: &'a RefCell<StdRng>,
     ) -> Self {
         Self {
             initial_value: spec.initial_value(),
@@ -53,7 +52,9 @@ impl<'a> Context<'a> {
             initial_value_job_sent: false,
             crossover_params: init_crossover_params,
             _mutation_params: init_mutation_params,
-            crossover: Crossover::new(path_manager, spec, rng),
+            crossover: Crossover::new(spec),
+            path: Path::default(),
+            rng: StdRng::seed_from_u64(0),
         }
     }
 }
@@ -74,16 +75,11 @@ pub async fn start_controller(
     mut recv: UnboundedReceiver<ControllerEvent>,
     mut report_sender: UnboundedSender<Report>,
 ) -> Result<Value, Error> {
-    // TODO have the context own the following objects
-    let rng = RefCell::new(StdRng::seed_from_u64(0));
-    let path_manager = RefCell::new(PathManager::new());
     let mut ctx = Context::new(
-        &path_manager,
         &spec,
         algo_params,
         init_crossover_params,
         init_mutation_params,
-        &rng,
     );
 
     while let Some(event) = recv.next().await {
@@ -137,7 +133,7 @@ impl<'a> Context<'a> {
         eval_job_sender.send(eval_job).ok();
     }
 
-    fn create_offspring(&self) -> Value {
+    fn create_offspring(&mut self) -> Value {
         let crossover_result = if self.individuals_evaled.is_empty() {
             self.initial_value.clone()
         } else {
@@ -146,8 +142,12 @@ impl<'a> Context<'a> {
                 .iter()
                 .map(|ind| &ind.individual)
                 .collect();
-            self.crossover
-                .crossover(&individuals_ordered, &self.crossover_params)
+            self.crossover.crossover(
+                &individuals_ordered,
+                &self.crossover_params,
+                &mut self.path,
+                &mut self.rng,
+            )
         };
 
         crossover_result // TODO, mutation
