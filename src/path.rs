@@ -4,15 +4,15 @@ use crate::value::Node::*;
 use std::collections::HashMap;
 
 #[derive(Default)]
-pub struct Path(pub PathNode);
+pub struct PathContext(pub PathNodeContext);
 
 #[derive(Default)]
-pub struct PathNode {
-    child_nodes: HashMap<String, Box<PathNode>>,
+pub struct PathNodeContext {
+    child_nodes: HashMap<String, Box<PathNodeContext>>,
     pub rescaling_ctx: RescalingContext,
 }
 
-impl PathNode {
+impl PathNodeContext {
     pub fn add_nodes_for(&mut self, node: &value::Node) {
         match node {
             Sub(mapping) => {
@@ -31,11 +31,11 @@ impl PathNode {
         }
     }
 
-    pub fn get_child(&self, key: &str) -> &PathNode {
+    pub fn get_child(&self, key: &str) -> &PathNodeContext {
         self.child_nodes.get(key).unwrap()
     }
 
-    pub fn get_child_mut(&mut self, key: &str) -> &mut PathNode {
+    pub fn get_child_mut(&mut self, key: &str) -> &mut PathNodeContext {
         self.child_nodes.get_mut(key).unwrap()
     }
 }
@@ -46,14 +46,14 @@ pub mod testutil {
     use crate::rescaling::Rescaling;
 
     use super::*;
-    pub fn set_rescaling_at_path(path_node: &mut PathNode, path: &[&str], rescaling: Rescaling) {
+    pub fn set_rescaling_at_path(path_node_ctx: &mut PathNodeContext, path: &[&str], rescaling: Rescaling) {
         match path.first() {
             Some(head) => set_rescaling_at_path(
-                path_node.child_nodes.get_mut(*head).unwrap(),
+                path_node_ctx.child_nodes.get_mut(*head).unwrap(),
                 &path[1..],
                 rescaling,
             ),
-            None => path_node.rescaling_ctx.current_rescaling = rescaling,
+            None => path_node_ctx.rescaling_ctx.current_rescaling = rescaling,
         }
     }
 }
@@ -77,7 +77,7 @@ mod tests {
             ),
         ])));
 
-        let mut sut = PathNode::default();
+        let mut sut = PathNodeContext::default();
         sut.add_nodes_for(&value.0);
 
         assert_eq!(sut.child_nodes.len(), 4);
@@ -110,7 +110,7 @@ mod tests {
             )]))),
         )])));
 
-        let mut sut = PathNode::default();
+        let mut sut = PathNodeContext::default();
         sut.add_nodes_for(&value0.0);
         sut.add_nodes_for(&value1.0);
 

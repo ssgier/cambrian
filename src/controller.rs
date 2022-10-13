@@ -8,7 +8,7 @@ use crate::message::Report;
 use crate::meta::AlgoParams;
 use crate::meta::CrossoverParams;
 use crate::meta::MutationParams;
-use crate::path::Path;
+use crate::path::PathContext;
 use crate::spec::Spec;
 use crate::value::Value;
 use derivative::Derivative;
@@ -32,7 +32,7 @@ struct Context<'a> {
     crossover_params: CrossoverParams,
     _mutation_params: MutationParams,
     crossover: Crossover<'a>,
-    path: Path,
+    path: PathContext,
     rng: StdRng,
 }
 
@@ -53,7 +53,7 @@ impl<'a> Context<'a> {
             crossover_params: init_crossover_params,
             _mutation_params: init_mutation_params,
             crossover: Crossover::new(spec),
-            path: Path::default(),
+            path: PathContext::default(),
             rng: StdRng::seed_from_u64(0),
         }
     }
