@@ -13,7 +13,7 @@ pub enum Error {
         path_hint: String,
         attribute_name: String,
     },
-    #[error("at path {path_hint:?}: attribute value of \"{attribute_name:?}\" must be {expected_type_hint:?}")]
+    #[error("at path {path_hint:?}: attribute value of \"{attribute_name:?}\" must be {expected_type_hint:?}. Hint: Did you leave a trailing comma?")]
     InvalidAttributeValueType {
         path_hint: String,
         attribute_name: String,
@@ -44,6 +44,8 @@ pub enum Error {
     InvalidBounds { path_hint: String },
     #[error("at path {path_hint:?}: min size must be lower than max size")]
     InvalidSizeBounds { path_hint: String },
+    #[error("at path {path_hint:?}: max size must not be zero")]
+    ZeroMaxSize { path_hint: String },
     #[error("at path {path_hint:?}: mandatory attribute missing: {missing_attribute_name:?}")]
     MandatoryAttributeMissing {
         path_hint: String,

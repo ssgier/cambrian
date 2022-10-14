@@ -10,7 +10,7 @@ pub struct PathContext(pub PathNodeContext);
 pub struct PathNodeContext {
     child_nodes: HashMap<String, Box<PathNodeContext>>,
     pub rescaling_ctx: RescalingContext,
-    id_mgr: KeyManager,
+    key_mgr: KeyManager,
 }
 
 #[derive(Default)]
@@ -23,6 +23,10 @@ impl KeyManager {
         let result = self.next_key;
         self.next_key += 1;
         result
+    }
+
+    fn on_key_seen(&mut self, key: usize) {
+        self.next_key = self.next_key.max(key + 1);
     }
 }
 
@@ -37,6 +41,7 @@ impl PathNodeContext {
             }
             AnonMap(mapping) => {
                 for (key, value) in mapping {
+                    self.key_mgr.on_key_seen(*key);
                     let child_node = self.child_nodes.entry(key.to_string()).or_default();
                     child_node.add_nodes_for(value);
                 }
@@ -49,12 +54,12 @@ impl PathNodeContext {
         self.child_nodes.get(key).unwrap()
     }
 
-    pub fn get_child_mut(&mut self, key: &str) -> &mut PathNodeContext {
-        self.child_nodes.get_mut(key).unwrap()
+    pub fn get_or_create_child_mut(&mut self, key: &str) -> &mut PathNodeContext {
+        self.child_nodes.entry(key.to_string()).or_default()
     }
 
     pub fn next_key(&mut self) -> usize {
-        self.id_mgr.next_key()
+        self.key_mgr.next_key()
     }
 }
 

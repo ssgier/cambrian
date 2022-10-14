@@ -268,6 +268,12 @@ fn build_anon_map(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, 
 
     check_size_bounds_sanity(min_size, max_size, path)?;
 
+    if max_size.filter(|max_size| *max_size == 0).is_some() {
+        return Err(Error::ZeroMaxSize {
+            path_hint: format_path(path),
+        });
+    }
+
     let init_size = extract_usize_attribute_value(mapping, "initSize", path, false)?
         .or(min_size)
         .unwrap_or(0);
@@ -843,6 +849,22 @@ mod tests {
                 min_size: None,
                 max_size: None
             })) if *value_type.as_ref() == Node::Bool {init: false}
+        ));
+    }
+
+    #[test]
+    fn anon_map_zero_max_size() {
+        let yaml_str = "
+        type: anon map
+        valueType:
+            type: bool
+        maxSize: 0
+        ";
+
+        assert!(matches!(
+        from_yaml_str(yaml_str),
+            Err(Error::ZeroMaxSize { path_hint })
+            if path_hint == "(root)"
         ));
     }
 

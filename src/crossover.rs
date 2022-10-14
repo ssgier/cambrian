@@ -132,7 +132,7 @@ where
                         rng,
                     ),
                     spec::Node::Int { .. } | spec::Node::Real { .. } | spec::Node::Bool { .. } => {
-                        panic!()
+                        unreachable!()
                     }
                 }
             }
@@ -152,7 +152,7 @@ where
         let result_value_map: HashMap<String, Box<value::Node>> = spec_map
             .iter()
             .map(|(key, child_spec_node)| {
-                let child_path_node_ctx = path_node_ctx.get_child_mut(key);
+                let child_path_node_ctx = path_node_ctx.get_or_create_child_mut(key);
 
                 let child_values: Vec<Option<&value::Node>> = individuals_ordered
                     .iter()
@@ -160,7 +160,7 @@ where
                         if let value::Node::Sub(value_map) = *value {
                             value_map.get(key).map(|v| v.deref())
                         } else {
-                            panic!("bad state")
+                            unreachable!()
                         }
                     })
                     .collect();
@@ -199,7 +199,7 @@ where
                 if let value::Node::AnonMap(mapping) = *individual {
                     mapping.keys()
                 } else {
-                    panic!("bad state")
+                    unreachable!()
                 }
             })
             .collect();
@@ -207,14 +207,14 @@ where
         let result_value_map: HashMap<usize, Box<value::Node>> = all_keys
             .iter()
             .map(|key| {
-                let child_path_node_ctx = path_node_ctx.get_child_mut(&key.to_string());
+                let child_path_node_ctx = path_node_ctx.get_or_create_child_mut(&key.to_string());
                 let child_values: Vec<Option<&value::Node>> = individuals_ordered
                     .iter()
                     .map(|individual| {
                         if let value::Node::AnonMap(mapping) = *individual {
                             mapping.get(key).map(Deref::deref)
                         } else {
-                            panic!("bad state")
+                            unreachable!()
                         }
                     })
                     .collect();
@@ -529,8 +529,8 @@ mod tests {
             &mut make_rng(),
         );
 
-        let value_foo = extract_from_value(&result, &["foo"]);
-        let value_bar = extract_from_value(&result, &["bar"]);
+        let value_foo = extract_from_value(&result, &["foo"]).unwrap();
+        let value_bar = extract_from_value(&result, &["bar"]).unwrap();
 
         assert_ne!(value_foo, value_bar);
     }
@@ -580,7 +580,7 @@ mod tests {
                 value::Node::Int(0)
             );
         } else {
-            panic!();
+            unreachable!();
         }
     }
 
@@ -619,8 +619,8 @@ mod tests {
             &mut make_rng(),
         );
 
-        let value0 = extract_from_value(&result, &["0"]);
-        let value1 = extract_from_value(&result, &["1"]);
+        let value0 = extract_from_value(&result, &["0"]).unwrap();
+        let value1 = extract_from_value(&result, &["1"]).unwrap();
 
         assert_ne!(value0, value1);
     }
@@ -664,7 +664,7 @@ mod tests {
                 value::Node::Bool(true)
             );
         } else {
-            panic!();
+            unreachable!();
         }
     }
 
@@ -706,8 +706,8 @@ mod tests {
             &mut make_rng(),
         );
 
-        let value_foo = extract_from_value(&result, &["foo"]);
-        let value_bar = extract_from_value(&result, &["bar"]);
+        let value_foo = extract_from_value(&result, &["foo"]).unwrap();
+        let value_bar = extract_from_value(&result, &["bar"]).unwrap();
 
         assert_eq!(*value_foo, value::Node::Bool(false));
         assert_eq!(*value_bar, value::Node::Bool(false));
@@ -759,8 +759,8 @@ mod tests {
             &mut make_rng(),
         );
 
-        let value_foo = extract_from_value(&result, &["0", "foo"]);
-        let value_bar = extract_from_value(&result, &["0", "bar"]);
+        let value_foo = extract_from_value(&result, &["0", "foo"]).unwrap();
+        let value_bar = extract_from_value(&result, &["0", "bar"]).unwrap();
 
         assert_eq!(*value_foo, value::Node::Bool(false));
         assert_eq!(*value_bar, value::Node::Bool(false));
@@ -811,8 +811,8 @@ mod tests {
             &mut make_rng(),
         );
 
-        let value_foo = extract_from_value(&result, &["0", "foo"]);
-        let value_bar = extract_from_value(&result, &["0", "bar"]);
+        let value_foo = extract_from_value(&result, &["0", "foo"]).unwrap();
+        let value_bar = extract_from_value(&result, &["0", "bar"]).unwrap();
 
         assert_eq!(*value_foo, *value_bar);
     }
@@ -916,15 +916,15 @@ mod tests {
             &mut make_rng(),
         );
 
-        let value_a0 = extract_from_value(&result, &["foo_sub", "a", "0"]);
-        let value_a1 = extract_from_value(&result, &["foo_sub", "a", "1"]);
-        let value_at_foo = extract_from_value(&result, &["foo"]);
-        let value_at_bar = extract_from_value(&result, &["bar"]);
+        let value_a0 = extract_from_value(&result, &["foo_sub", "a", "0"]).unwrap();
+        let value_a1 = extract_from_value(&result, &["foo_sub", "a", "1"]).unwrap();
+        let value_at_foo = extract_from_value(&result, &["foo"]).unwrap();
+        let value_at_bar = extract_from_value(&result, &["bar"]).unwrap();
 
-        let foo_sub_value = extract_from_value(&result, &["foo_sub"]);
+        let foo_sub_value = extract_from_value(&result, &["foo_sub"]).unwrap();
         match foo_sub_value {
             value::Node::Sub(mapping) => assert_eq!(mapping.len(), 1),
-            _ => panic!(),
+            _ => unreachable!(),
         }
 
         assert_eq!(*value_a0, value::Node::Bool(false));
