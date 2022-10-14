@@ -10,6 +10,20 @@ pub struct PathContext(pub PathNodeContext);
 pub struct PathNodeContext {
     child_nodes: HashMap<String, Box<PathNodeContext>>,
     pub rescaling_ctx: RescalingContext,
+    id_mgr: KeyManager,
+}
+
+#[derive(Default)]
+pub struct KeyManager {
+    next_key: usize,
+}
+
+impl KeyManager {
+    pub fn next_key(&mut self) -> usize {
+        let result = self.next_key;
+        self.next_key += 1;
+        result
+    }
 }
 
 impl PathNodeContext {
@@ -38,6 +52,10 @@ impl PathNodeContext {
     pub fn get_child_mut(&mut self, key: &str) -> &mut PathNodeContext {
         self.child_nodes.get_mut(key).unwrap()
     }
+
+    pub fn next_key(&mut self) -> usize {
+        self.id_mgr.next_key()
+    }
 }
 
 #[cfg(test)]
@@ -46,7 +64,11 @@ pub mod testutil {
     use crate::rescaling::Rescaling;
 
     use super::*;
-    pub fn set_rescaling_at_path(path_node_ctx: &mut PathNodeContext, path: &[&str], rescaling: Rescaling) {
+    pub fn set_rescaling_at_path(
+        path_node_ctx: &mut PathNodeContext,
+        path: &[&str],
+        rescaling: Rescaling,
+    ) {
         match path.first() {
             Some(head) => set_rescaling_at_path(
                 path_node_ctx.child_nodes.get_mut(*head).unwrap(),

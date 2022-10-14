@@ -9,7 +9,6 @@ pub struct CrossoverRescaling {
 #[derive(Debug)]
 pub struct MutationRescaling {
     pub mutation_prob_factor: f64,
-    pub flip_prob_factor: f64,
     pub mutation_scale_factor: f64,
 }
 
@@ -32,7 +31,6 @@ impl Default for MutationRescaling {
     fn default() -> Self {
         Self {
             mutation_prob_factor: 1.0,
-            flip_prob_factor: 1.0,
             mutation_scale_factor: 1.0,
         }
     }
@@ -50,7 +48,6 @@ impl Rescaling {
     pub fn rescale_mutation(&self, pre: &MutationParams) -> MutationParams {
         MutationParams {
             mutation_prob: pre.mutation_prob * self.mutation_rescaling.mutation_prob_factor,
-            flip_prob: pre.flip_prob * self.mutation_rescaling.flip_prob_factor,
             mutation_scale: pre.mutation_scale * self.mutation_rescaling.mutation_scale_factor,
         }
     }

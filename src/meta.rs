@@ -10,7 +10,6 @@ pub struct CrossoverParams {
 #[derive(Debug)]
 pub struct MutationParams {
     pub mutation_prob: f64,
-    pub flip_prob: f64,
     pub mutation_scale: f64,
 }
 
