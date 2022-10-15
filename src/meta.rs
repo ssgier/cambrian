@@ -20,6 +20,10 @@ pub struct AlgoParams {
 }
 
 #[async_trait]
-pub trait ObjectiveFunction {
-    async fn evaluate(value: &serde_json::Value) -> Option<f64>;
+pub trait AsyncObjectiveFunction: Sync {
+    async fn evaluate(&self, value: serde_json::Value) -> Option<f64>;
+}
+
+pub trait ObjectiveFunction: Sync + Send + 'static {
+    fn evaluate(&self, value: serde_json::Value) -> Option<f64>;
 }

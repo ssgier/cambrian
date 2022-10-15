@@ -1,12 +1,14 @@
 use crate::error::Error;
 use crate::event::ControllerEvent;
 use crate::event::IndividualEvalJob;
-use crate::meta::ObjectiveFunction;
+use crate::meta::AsyncObjectiveFunction;
 use futures::channel::mpsc::UnboundedSender;
 use futures::channel::oneshot;
 use futures::SinkExt;
+use std::sync::Arc;
 
-pub async fn start_worker<F: ObjectiveFunction>(
+pub async fn start_worker<F: AsyncObjectiveFunction>(
+    obj_func: Arc<F>,
     mut event_sender: UnboundedSender<ControllerEvent>,
 ) -> Result<(), Error> {
     let mut job_receiver: Option<oneshot::Receiver<IndividualEvalJob>>;
@@ -21,7 +23,7 @@ pub async fn start_worker<F: ObjectiveFunction>(
         .ok();
 
     while let Ok(job) = job_receiver.take().unwrap().await {
-        let eval_result = F::evaluate(&job.individual.to_json()).await;
+        let eval_result = obj_func.evaluate(job.individual.to_json()).await;
 
         let (job_sender, job_recv) = oneshot::channel::<IndividualEvalJob>();
         job_receiver = Some(job_recv);

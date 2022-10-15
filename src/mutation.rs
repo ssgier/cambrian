@@ -301,10 +301,10 @@ mod tests {
     use crate::testutil::extract_as_int;
     use std::collections::HashSet;
 
-    use finite::FiniteF64;
     use float_cmp::approx_eq;
     use lazy_static::__Deref;
     use rand::SeedableRng;
+    use tangram_finite::FiniteF64;
 
     use crate::{testutil::extract_as_real, value_util};
 
@@ -482,8 +482,8 @@ mod tests {
             .min()
             .unwrap();
 
-        assert!(min_found >= 9.0);
-        assert!(min_found < 10.0);
+        assert!(min_found.get() >= 9.0);
+        assert!(min_found.get() < 10.0);
 
         let max_found = values
             .iter()
@@ -491,8 +491,8 @@ mod tests {
             .max()
             .unwrap();
 
-        assert!(max_found <= 11.0);
-        assert!(max_found > 10.0);
+        assert!(max_found.get() <= 11.0);
+        assert!(max_found.get() > 10.0);
     }
 
     #[test]
