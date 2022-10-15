@@ -1,4 +1,4 @@
-# async_aga
+# cambrian
 
 ## Asynchronous Adaptive Genetic Algorithm
 
