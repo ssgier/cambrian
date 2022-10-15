@@ -38,6 +38,7 @@ fn trivial_problem_sync() {
     let algo_params = AlgoParams {
         is_stochastic: false,
         num_concurrent: 1,
+        max_population_size: 20,
     };
 
     let init_crossover_params = CrossoverParams {

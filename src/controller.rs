@@ -13,23 +13,26 @@ use crate::path::PathContext;
 use crate::result::FinalReport;
 use crate::spec::Spec;
 use crate::value::Value;
-use derivative::Derivative;
 use futures::channel::oneshot::Sender;
 use futures::SinkExt;
 use futures::{
     channel::mpsc::{UnboundedReceiver, UnboundedSender},
     StreamExt,
 };
+use lazy_static::__Deref;
 use log::trace;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::sync::Arc;
 use tangram_finite::FiniteF64;
 
 struct Context<'a> {
     spec: &'a Spec,
-    _algo_params: AlgoParams,
-    individuals_evaled: BTreeSet<EvaluatedIndividual>,
+    algo_params: AlgoParams,
+    individuals_evaled: BTreeMap<IndividualOrderingKey, Arc<Value>>,
+    individuals_by_id: HashMap<usize, Arc<Value>>,
     max_num_eval: Option<usize>,
     eval_count: usize,
     initial_value: Value,
@@ -39,6 +42,7 @@ struct Context<'a> {
     crossover: Crossover<'a>,
     path: PathContext,
     rng: StdRng,
+    next_id: usize,
 }
 
 impl<'a> Context<'a> {
@@ -52,8 +56,9 @@ impl<'a> Context<'a> {
         Self {
             initial_value: spec.initial_value(),
             spec,
-            _algo_params: algo_params,
-            individuals_evaled: BTreeSet::new(),
+            algo_params,
+            individuals_evaled: BTreeMap::new(),
+            individuals_by_id: HashMap::new(),
             max_num_eval,
             eval_count: 0,
             initial_value_job_sent: false,
@@ -62,16 +67,15 @@ impl<'a> Context<'a> {
             crossover: Crossover::new(spec),
             path: PathContext::default(),
             rng: StdRng::seed_from_u64(0),
+            next_id: 0,
         }
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Ord, Eq, PartialOrd, PartialEq)]
-struct EvaluatedIndividual {
+#[derive(Ord, Eq, PartialEq, PartialOrd, Clone, Debug)]
+struct IndividualOrderingKey {
     obj_func_val: FiniteF64,
-    #[derivative(Ord = "ignore", PartialOrd = "ignore", PartialEq = "ignore")]
-    individual: Value,
+    id: usize,
 }
 
 fn finitify_obj_func_val(obj_func_val: f64) -> Result<FiniteF64, Error> {
@@ -100,9 +104,11 @@ pub async fn start_controller(
             WorkerReady { eval_job_sender } => ctx.on_worker_available(eval_job_sender),
             IndividualEvalCompleted {
                 obj_func_val,
-                individual,
+                individual_id,
                 next_eval_job_sender,
             } => {
+                let individual = ctx.individuals_by_id.get(&individual_id).unwrap();
+
                 report_sender
                     .send(Report::IndividualEvalCompleted {
                         obj_func_val,
@@ -118,7 +124,7 @@ pub async fn start_controller(
                         obj_func_val,
                         individual.to_json()
                     );
-                    ctx.process_individual_eval(obj_func_val, individual);
+                    ctx.process_individual_eval(individual_id, obj_func_val, individual.clone());
                 } else {
                     trace!("Individual rejected:\n{}", individual.to_json())
                 }
@@ -130,9 +136,9 @@ pub async fn start_controller(
     }
 
     match ctx.individuals_evaled.into_iter().next() {
-        Some(evaluated_individual) => Ok(FinalReport::from_best_seen(
-            evaluated_individual.obj_func_val.get(),
-            evaluated_individual.individual.to_json(),
+        Some((ordering_key, individual)) => Ok(FinalReport::from_best_seen(
+            ordering_key.obj_func_val.get(),
+            individual.to_json(),
         )),
         None => Err(Error::NoIndividuals),
     }
@@ -150,27 +156,40 @@ impl<'a> Context<'a> {
         }
     }
 
+    fn make_id(&mut self) -> usize {
+        let result = self.next_id;
+        self.next_id += 1;
+        result
+    }
+
     fn create_and_send_next_eval_job(&mut self, eval_job_sender: Sender<IndividualEvalJob>) {
+        let individual_id = self.make_id();
         let individual = if self.initial_value_job_sent {
-            self.create_offspring()
+            self.create_offspring(individual_id)
         } else {
             self.initial_value_job_sent = true;
-            self.initial_value.clone()
+            Arc::new(self.initial_value.clone())
         };
 
-        let eval_job = IndividualEvalJob { individual };
+        self.individuals_by_id
+            .insert(individual_id, individual.clone());
+
+        let eval_job = IndividualEvalJob {
+            individual,
+            individual_id,
+        };
 
         eval_job_sender.send(eval_job).ok();
     }
 
-    fn create_offspring(&mut self) -> Value {
+    fn create_offspring(&mut self, _individual_id: usize) -> Arc<Value> {
         let crossover_result = if self.individuals_evaled.is_empty() {
             self.initial_value.clone()
         } else {
             let individuals_ordered: Vec<&Value> = self
                 .individuals_evaled
                 .iter()
-                .map(|ind| &ind.individual)
+                .map(|ind| ind.1.deref())
                 .collect();
             self.crossover.crossover(
                 &individuals_ordered,
@@ -194,13 +213,27 @@ impl<'a> Context<'a> {
             result.to_json()
         );
 
-        result
+        Arc::new(result)
     }
 
-    fn process_individual_eval(&mut self, obj_func_val: FiniteF64, individual: Value) {
-        self.individuals_evaled.insert(EvaluatedIndividual {
+    fn process_individual_eval(
+        &mut self,
+        individual_id: usize,
+        obj_func_val: FiniteF64,
+        individual: Arc<Value>,
+    ) {
+        let ordering_key = IndividualOrderingKey {
             obj_func_val,
-            individual,
-        });
+            id: individual_id,
+        };
+
+        self.individuals_evaled.insert(ordering_key, individual);
+
+        while self.individuals_evaled.len() > self.algo_params.max_population_size {
+            let last_ordering_key: IndividualOrderingKey =
+                self.individuals_evaled.keys().next_back().unwrap().clone();
+            self.individuals_evaled.remove(&last_ordering_key);
+            self.individuals_by_id.remove(&last_ordering_key.id);
+        }
     }
 }

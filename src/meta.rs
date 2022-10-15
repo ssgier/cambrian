@@ -17,6 +17,7 @@ pub struct MutationParams {
 pub struct AlgoParams {
     pub is_stochastic: bool,
     pub num_concurrent: usize,
+    pub max_population_size: usize,
 }
 
 #[async_trait]
