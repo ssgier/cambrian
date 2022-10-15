@@ -10,8 +10,9 @@ use crate::spec::Spec;
 use crate::worker::start_worker;
 use futures::channel::mpsc;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
-use futures::future;
+use futures::select;
 use futures::StreamExt;
+use futures::{future, pin_mut, FutureExt};
 
 #[allow(clippy::too_many_arguments)]
 pub async fn launch<F: AsyncObjectiveFunction>(
@@ -30,7 +31,10 @@ pub async fn launch<F: AsyncObjectiveFunction>(
         Command::Terminate => ControllerEvent::TerminationCommand,
     });
 
-    let cmd_event_stream = cmd_event_stream.map(Ok).forward(event_sender.clone());
+    let cmd_event_stream = cmd_event_stream
+        .map(Ok)
+        .forward(event_sender.clone())
+        .fuse();
 
     let num_concurrent = algo_params.num_concurrent;
 
@@ -42,15 +46,23 @@ pub async fn launch<F: AsyncObjectiveFunction>(
         event_recv,
         report_sender,
         max_num_eval,
-    );
+    )
+    .fuse();
 
     let obj_func = Arc::new(obj_func);
     let workers = future::join_all(
         std::iter::repeat_with(|| start_worker(obj_func.clone(), event_sender.clone()))
             .take(num_concurrent),
-    );
+    )
+    .fuse();
 
-    drop(event_sender);
+    pin_mut!(ctrl, workers, cmd_event_stream);
 
-    futures::join!(ctrl, workers, cmd_event_stream).0
+    loop {
+        select! {
+            _ = workers => (),
+            result = ctrl => return result,
+            _ = cmd_event_stream => return Err(Error::ClientHungUp),
+        };
+    }
 }

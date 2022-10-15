@@ -40,6 +40,11 @@ pub async fn start_worker<F: AsyncObjectiveFunction>(
             .ok();
     }
 
+    event_sender
+        .send(ControllerEvent::WorkerTerminating)
+        .await
+        .ok();
+
     trace!("Worker terminating");
 
     Ok(())

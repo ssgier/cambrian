@@ -84,4 +84,6 @@ pub enum Error {
     ObjFuncValMustBeFinite,
     #[error("no successfully evaluated individuals available")]
     NoIndividuals,
+    #[error("client hung up")]
+    ClientHungUp,
 }

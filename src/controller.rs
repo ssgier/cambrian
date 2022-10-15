@@ -43,6 +43,7 @@ struct Context<'a> {
     path: PathContext,
     rng: StdRng,
     next_id: usize,
+    num_active_workers: usize,
 }
 
 impl<'a> Context<'a> {
@@ -68,6 +69,7 @@ impl<'a> Context<'a> {
             path: PathContext::default(),
             rng: StdRng::seed_from_u64(0),
             next_id: 0,
+            num_active_workers: 0,
         }
     }
 }
@@ -101,7 +103,13 @@ pub async fn start_controller(
 
     while let Some(event) = recv.next().await {
         match event {
-            WorkerReady { eval_job_sender } => ctx.on_worker_available(eval_job_sender),
+            WorkerTerminating => {
+                ctx.on_worker_terminating();
+                if ctx.num_active_workers == 0 {
+                    break;
+                }
+            }
+            WorkerReady { eval_job_sender } => ctx.on_worker_ready(eval_job_sender),
             IndividualEvalCompleted {
                 obj_func_val,
                 individual_id,
@@ -154,6 +162,15 @@ impl<'a> Context<'a> {
             self.create_and_send_next_eval_job(eval_job_sender);
             self.eval_count += 1;
         }
+    }
+
+    fn on_worker_ready(&mut self, eval_job_sender: Sender<IndividualEvalJob>) {
+        self.num_active_workers += 1;
+        self.on_worker_available(eval_job_sender)
+    }
+
+    fn on_worker_terminating(&mut self) {
+        self.num_active_workers -= 1;
     }
 
     fn make_id(&mut self) -> usize {
