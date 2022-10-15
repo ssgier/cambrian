@@ -50,5 +50,7 @@ pub async fn launch<F: AsyncObjectiveFunction>(
             .take(num_concurrent),
     );
 
+    drop(event_sender);
+
     futures::join!(ctrl, workers, cmd_event_stream).0
 }

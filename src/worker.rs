@@ -5,12 +5,15 @@ use crate::meta::AsyncObjectiveFunction;
 use futures::channel::mpsc::UnboundedSender;
 use futures::channel::oneshot;
 use futures::SinkExt;
+use log::trace;
 use std::sync::Arc;
 
 pub async fn start_worker<F: AsyncObjectiveFunction>(
     obj_func: Arc<F>,
     mut event_sender: UnboundedSender<ControllerEvent>,
 ) -> Result<(), Error> {
+    trace!("Worker starting");
+
     let mut job_receiver: Option<oneshot::Receiver<IndividualEvalJob>>;
     let (sender, job_recv) = oneshot::channel::<IndividualEvalJob>();
     job_receiver = Some(job_recv);
@@ -36,6 +39,8 @@ pub async fn start_worker<F: AsyncObjectiveFunction>(
             .await
             .ok();
     }
+
+    trace!("Worker terminating");
 
     Ok(())
 }

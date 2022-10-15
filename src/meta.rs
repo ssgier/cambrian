@@ -27,3 +27,23 @@ pub trait AsyncObjectiveFunction: Sync {
 pub trait ObjectiveFunction: Sync + Send + 'static {
     fn evaluate(&self, value: serde_json::Value) -> Option<f64>;
 }
+
+pub struct ObjectiveFunctionImpl<F> {
+    obj_func: F,
+}
+
+impl<F> ObjectiveFunction for ObjectiveFunctionImpl<F>
+where
+    F: Fn(serde_json::Value) -> Option<f64> + Send + Sync + 'static,
+{
+    fn evaluate(&self, value: serde_json::Value) -> Option<f64> {
+        (self.obj_func)(value)
+    }
+}
+
+pub fn make_obj_func<F>(f: F) -> ObjectiveFunctionImpl<F>
+where
+    F: Fn(serde_json::Value) -> Option<f64>,
+{
+    ObjectiveFunctionImpl { obj_func: f }
+}

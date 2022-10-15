@@ -20,6 +20,7 @@ use futures::{
     channel::mpsc::{UnboundedReceiver, UnboundedSender},
     StreamExt,
 };
+use log::trace;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use std::collections::BTreeSet;
@@ -112,7 +113,14 @@ pub async fn start_controller(
 
                 if let Some(obj_func_val) = obj_func_val {
                     let obj_func_val = finitify_obj_func_val(obj_func_val)?;
+                    trace!(
+                        "Received objective function value {} for individual:\n{}",
+                        obj_func_val,
+                        individual.to_json()
+                    );
                     ctx.process_individual_eval(obj_func_val, individual);
+                } else {
+                    trace!("Individual rejected:\n{}", individual.to_json())
                 }
 
                 ctx.on_worker_available(next_eval_job_sender)
@@ -146,6 +154,7 @@ impl<'a> Context<'a> {
         let individual = if self.initial_value_job_sent {
             self.create_offspring()
         } else {
+            self.initial_value_job_sent = true;
             self.initial_value.clone()
         };
 
@@ -171,13 +180,21 @@ impl<'a> Context<'a> {
             )
         };
 
-        mutate(
+        let result = mutate(
             self.spec,
             &crossover_result,
             &self.mutation_params,
             &mut self.path,
             &mut self.rng,
-        )
+        );
+
+        trace!(
+            "Offspring created:\ncrossover result:\n{}\nmutation result:\n{}",
+            crossover_result.to_json(),
+            result.to_json()
+        );
+
+        result
     }
 
     fn process_individual_eval(&mut self, obj_func_val: FiniteF64, individual: Value) {

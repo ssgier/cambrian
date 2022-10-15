@@ -43,6 +43,7 @@ where
         .min();
 
     let (_cmd_sender, cmd_recv) = mpsc::unbounded::<Command>();
+    drop(_cmd_sender);
     let (report_sender, _report_recv) = mpsc::unbounded::<Report>();
 
     let launch_fut = async_launch::launch(
