@@ -1,9 +1,7 @@
+use cambrian::meta::AlgoConfigBuilder;
+use cambrian::meta::{CrossoverParams, MutationParams};
 use cambrian::{self, meta, spec_util};
-use cambrian::{
-    meta::{AlgoParams, CrossoverParams, MutationParams},
-    sync_launch,
-    termination::TerminationCriterion,
-};
+use cambrian::{sync_launch, termination::TerminationCriterion};
 use float_cmp::approx_eq;
 use serde::Deserialize;
 
@@ -35,12 +33,6 @@ fn trivial_problem_sync() {
         Some(x * x + y * y)
     });
 
-    let algo_params = AlgoParams {
-        is_stochastic: false,
-        num_concurrent: 1,
-        max_population_size: 20,
-    };
-
     let init_crossover_params = CrossoverParams {
         crossover_prob: 0.75,
         selection_pressure: 0.5,
@@ -51,16 +43,16 @@ fn trivial_problem_sync() {
         mutation_scale: 1.0,
     };
 
+    let mut builder = AlgoConfigBuilder::new();
+
+    builder
+        .init_crossover_params(init_crossover_params)
+        .init_mutation_params(init_mutation_params);
+
+    let algo_config = builder.build();
+
     let termination_criteria = vec![TerminationCriterion::NumObjFuncEval(100)];
-    let result = sync_launch::launch(
-        spec,
-        obj_func,
-        algo_params,
-        init_crossover_params,
-        init_mutation_params,
-        termination_criteria,
-    )
-    .unwrap();
+    let result = sync_launch::launch(spec, obj_func, algo_config, termination_criteria).unwrap();
 
     let value = TestValue::deserialize(result.best_seen.value).unwrap();
     let obj_func_val = result.best_seen.obj_func_val;

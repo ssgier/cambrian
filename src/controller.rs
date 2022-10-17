@@ -5,7 +5,7 @@ use crate::event::{
     IndividualEvalJob,
 };
 use crate::message::Report;
-use crate::meta::AlgoParams;
+use crate::meta::AlgoConfig;
 use crate::meta::CrossoverParams;
 use crate::meta::MutationParams;
 use crate::mutation::mutate;
@@ -30,7 +30,8 @@ use tangram_finite::FiniteF64;
 
 struct Context<'a> {
     spec: &'a Spec,
-    algo_params: AlgoParams,
+    _is_stochastic: bool,
+    max_population_size: usize,
     individuals_evaled: BTreeMap<IndividualOrderingKey, Arc<Value>>,
     individuals_by_id: HashMap<usize, Arc<Value>>,
     max_num_eval: Option<usize>,
@@ -47,24 +48,19 @@ struct Context<'a> {
 }
 
 impl<'a> Context<'a> {
-    fn new(
-        spec: &'a Spec,
-        algo_params: AlgoParams,
-        max_num_eval: Option<usize>,
-        init_crossover_params: CrossoverParams,
-        init_mutation_params: MutationParams,
-    ) -> Self {
+    fn new(spec: &'a Spec, algo_config: AlgoConfig, max_num_eval: Option<usize>) -> Self {
         Self {
             initial_value: spec.initial_value(),
             spec,
-            algo_params,
+            _is_stochastic: algo_config.is_stochastic,
+            max_population_size: algo_config.max_population_size,
+            crossover_params: algo_config.init_crossover_params,
+            mutation_params: algo_config.init_mutation_params,
             individuals_evaled: BTreeMap::new(),
             individuals_by_id: HashMap::new(),
             max_num_eval,
             eval_count: 0,
             initial_value_job_sent: false,
-            crossover_params: init_crossover_params,
-            mutation_params: init_mutation_params,
             crossover: Crossover::new(spec),
             path: PathContext::default(),
             rng: StdRng::seed_from_u64(0),
@@ -86,20 +82,12 @@ fn finitify_obj_func_val(obj_func_val: f64) -> Result<FiniteF64, Error> {
 
 pub async fn start_controller(
     spec: Spec,
-    algo_params: AlgoParams,
-    init_crossover_params: CrossoverParams,
-    init_mutation_params: MutationParams,
+    algo_config: AlgoConfig,
     mut recv: UnboundedReceiver<ControllerEvent>,
     mut report_sender: UnboundedSender<Report>,
     max_num_eval: Option<usize>,
 ) -> Result<FinalReport, Error> {
-    let mut ctx = Context::new(
-        &spec,
-        algo_params,
-        max_num_eval,
-        init_crossover_params,
-        init_mutation_params,
-    );
+    let mut ctx = Context::new(&spec, algo_config, max_num_eval);
 
     while let Some(event) = recv.next().await {
         match event {
@@ -246,7 +234,7 @@ impl<'a> Context<'a> {
 
         self.individuals_evaled.insert(ordering_key, individual);
 
-        while self.individuals_evaled.len() > self.algo_params.max_population_size {
+        while self.individuals_evaled.len() > self.max_population_size {
             let last_ordering_key: IndividualOrderingKey =
                 self.individuals_evaled.keys().next_back().unwrap().clone();
             self.individuals_evaled.remove(&last_ordering_key);

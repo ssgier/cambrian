@@ -5,15 +5,11 @@ use std::sync::Arc;
 use crate::async_launch;
 use crate::error::Error;
 use crate::message::Command;
-use crate::meta::AlgoParams;
+use crate::meta::AlgoConfig;
 use crate::meta::AsyncObjectiveFunction;
-use crate::meta::MutationParams;
 use crate::result::FinalReport;
 use crate::termination::TerminationCriterion;
-use crate::{
-    meta::{CrossoverParams, ObjectiveFunction},
-    spec::Spec,
-};
+use crate::{meta::ObjectiveFunction, spec::Spec};
 use async_trait::async_trait;
 use futures::channel::mpsc;
 use futures::executor;
@@ -23,9 +19,7 @@ use tokio::runtime::{Builder, Runtime};
 pub fn launch<F, T>(
     spec: Spec,
     obj_func: F,
-    algo_params: AlgoParams,
-    init_crossover_params: CrossoverParams,
-    init_mutation_params: MutationParams,
+    algo_config: AlgoConfig,
     termination_criteria: T,
 ) -> Result<FinalReport, Error>
 where
@@ -47,10 +41,8 @@ where
 
     let launch_fut = async_launch::launch(
         spec,
-        AsyncObjectiveFunctionImpl::wrap(obj_func, algo_params.num_concurrent),
-        algo_params,
-        init_crossover_params,
-        init_mutation_params,
+        AsyncObjectiveFunctionImpl::wrap(obj_func, algo_config.num_concurrent),
+        algo_config,
         cmd_recv,
         report_sender,
         max_num_eval,

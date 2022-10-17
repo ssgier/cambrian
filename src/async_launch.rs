@@ -4,7 +4,7 @@ use crate::controller::start_controller;
 use crate::error::Error;
 use crate::event::ControllerEvent;
 use crate::message::{Command, Report};
-use crate::meta::{AlgoParams, AsyncObjectiveFunction, CrossoverParams, MutationParams};
+use crate::meta::{AlgoConfig, AsyncObjectiveFunction};
 use crate::result::FinalReport;
 use crate::spec::Spec;
 use crate::worker::start_worker;
@@ -14,13 +14,10 @@ use futures::select;
 use futures::StreamExt;
 use futures::{future, pin_mut, FutureExt};
 
-#[allow(clippy::too_many_arguments)]
 pub async fn launch<F: AsyncObjectiveFunction>(
     spec: Spec,
     obj_func: F,
-    algo_params: AlgoParams,
-    init_crossover_params: CrossoverParams,
-    init_mutation_params: MutationParams,
+    algo_config: AlgoConfig,
     cmd_recv: UnboundedReceiver<Command>,
     report_sender: UnboundedSender<Report>,
     max_num_eval: Option<usize>,
@@ -36,18 +33,9 @@ pub async fn launch<F: AsyncObjectiveFunction>(
         .forward(event_sender.clone())
         .fuse();
 
-    let num_concurrent = algo_params.num_concurrent;
+    let num_concurrent = algo_config.num_concurrent;
 
-    let ctrl = start_controller(
-        spec,
-        algo_params,
-        init_crossover_params,
-        init_mutation_params,
-        event_recv,
-        report_sender,
-        max_num_eval,
-    )
-    .fuse();
+    let ctrl = start_controller(spec, algo_config, event_recv, report_sender, max_num_eval).fuse();
 
     let obj_func = Arc::new(obj_func);
     let workers = future::join_all(
