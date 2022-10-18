@@ -22,6 +22,8 @@ derivative = "2.2.0"
 async-trait = "0.1.57"
 itertools = "0.10.5"
 lazy_static = "1.4.0"
-tokio = { version = "1.21.2", features = ["rt", "rt-multi-thread"] }
+tokio = { version = "1.21.2", features = ["full"] }
 log = "0.4.17"
 env_logger = "0.9.1"
+async-process = "1.5.0"
+futures-timer = "3.0.2"

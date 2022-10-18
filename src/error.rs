@@ -1,3 +1,5 @@
+use std::io;
+use std::process::Output;
 use thiserror;
 
 #[derive(thiserror::Error, Debug)]
@@ -86,4 +88,8 @@ pub enum Error {
     NoIndividuals,
     #[error("client hung up")]
     ClientHungUp,
+    #[error(transparent)]
+    Io(#[from] io::Error),
+    #[error("child did not terminate successfully")]
+    ChildUnsuccessfulTermination(Output),
 }

@@ -32,7 +32,7 @@ pub async fn start_worker<F: AsyncObjectiveFunction>(
         job_receiver = Some(job_recv);
         event_sender
             .send(ControllerEvent::IndividualEvalCompleted {
-                obj_func_val: eval_result,
+                obj_func_val: eval_result?,
                 individual_id: job.individual_id,
                 next_eval_job_sender: job_sender,
             })

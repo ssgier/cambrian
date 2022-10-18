@@ -43,13 +43,9 @@ fn trivial_problem_sync() {
         mutation_scale: 1.0,
     };
 
-    let mut builder = AlgoConfigBuilder::new();
-
-    builder
+    let algo_config = AlgoConfigBuilder::new()
         .init_crossover_params(init_crossover_params)
-        .init_mutation_params(init_mutation_params);
-
-    let algo_config = builder.build();
+        .init_mutation_params(init_mutation_params).build();
 
     let termination_criteria = vec![TerminationCriterion::NumObjFuncEval(100)];
     let result = sync_launch::launch(spec, obj_func, algo_config, termination_criteria).unwrap();

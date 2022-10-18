@@ -1,5 +1,7 @@
 use async_trait::async_trait;
 
+use crate::error::Error;
+
 #[derive(Debug, Clone)]
 pub struct CrossoverParams {
     // TODO: sanitize on instantiation
@@ -24,7 +26,7 @@ pub struct AlgoConfig {
 
 #[async_trait]
 pub trait AsyncObjectiveFunction: Sync {
-    async fn evaluate(&self, value: serde_json::Value) -> Option<f64>;
+    async fn evaluate(&self, value: serde_json::Value) -> Result<Option<f64>, Error>;
 }
 
 pub trait ObjectiveFunction: Sync + Send + 'static {
@@ -113,16 +115,18 @@ impl AlgoConfigBuilder {
         }
     }
 
-    pub fn build(self) -> AlgoConfig {
+    pub fn build(&mut self) -> AlgoConfig {
         AlgoConfig {
             is_stochastic: self.is_stochastic.unwrap_or(false),
             num_concurrent: self.num_concurrent.unwrap_or(1),
             max_population_size: self.max_population_size.unwrap_or(DEFAULT_POPULATION_SIZE),
             init_crossover_params: self
                 .init_crossover_params
+                .clone()
                 .unwrap_or(DEFAULT_INIT_CROSSOVER_PARAMS),
             init_mutation_params: self
                 .init_mutation_params
+                .clone()
                 .unwrap_or(DEFAULT_INIT_MUTATION_PARAMS),
         }
     }

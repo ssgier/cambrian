@@ -38,17 +38,25 @@ pub async fn launch<F: AsyncObjectiveFunction>(
     let ctrl = start_controller(spec, algo_config, event_recv, report_sender, max_num_eval).fuse();
 
     let obj_func = Arc::new(obj_func);
-    let workers = future::join_all(
-        std::iter::repeat_with(|| start_worker(obj_func.clone(), event_sender.clone()))
-            .take(num_concurrent),
+    let mut workers = future::select_all(
+        std::iter::repeat_with(|| {
+            let fut = start_worker(obj_func.clone(), event_sender.clone()).fuse();
+            Box::pin(fut)
+        })
+        .take(num_concurrent),
     )
     .fuse();
 
-    pin_mut!(ctrl, workers, cmd_event_stream);
+    pin_mut!(ctrl, cmd_event_stream);
 
     loop {
         select! {
-            _ = workers => (),
+            (worker_result, _, remaining_workers) = workers => {
+                worker_result?;
+                if !remaining_workers.is_empty() {
+                    workers = future::select_all(remaining_workers).fuse();
+                }
+            },
             result = ctrl => return result,
             _ = cmd_event_stream => return Err(Error::ClientHungUp),
         };

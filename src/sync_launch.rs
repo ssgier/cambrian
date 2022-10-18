@@ -26,6 +26,24 @@ where
     F: ObjectiveFunction,
     T: IntoIterator<Item = TerminationCriterion>,
 {
+    launch_with_async_obj_func(
+        spec,
+        AsyncObjectiveFunctionImpl::wrap(obj_func, algo_config.num_concurrent),
+        algo_config,
+        termination_criteria,
+    )
+}
+
+pub fn launch_with_async_obj_func<F, T>(
+    spec: Spec,
+    obj_func: F,
+    algo_config: AlgoConfig,
+    termination_criteria: T,
+) -> Result<FinalReport, Error>
+where
+    F: AsyncObjectiveFunction,
+    T: IntoIterator<Item = TerminationCriterion>,
+{
     let termination_criteria = termination_criteria.into_iter().collect_vec();
 
     let max_num_eval = termination_criteria
@@ -41,7 +59,7 @@ where
 
     let launch_fut = async_launch::launch(
         spec,
-        AsyncObjectiveFunctionImpl::wrap(obj_func, algo_config.num_concurrent),
+        obj_func,
         algo_config,
         cmd_recv,
         report_sender,
@@ -76,7 +94,7 @@ impl<F> AsyncObjectiveFunction for AsyncObjectiveFunctionImpl<F>
 where
     F: ObjectiveFunction,
 {
-    async fn evaluate(&self, value: serde_json::Value) -> Option<f64> {
+    async fn evaluate(&self, value: serde_json::Value) -> Result<Option<f64>, Error> {
         let obj_func = self.obj_func.clone();
 
         match self
@@ -84,7 +102,7 @@ where
             .spawn(async move { obj_func.evaluate(value) })
             .await
         {
-            Ok(res) => res,
+            Ok(res) => Ok(res),
             Err(join_error) if join_error.is_panic() => {
                 panic::resume_unwind(join_error.into_panic())
             }

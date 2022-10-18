@@ -8,6 +8,7 @@ pub mod message;
 pub mod meta;
 pub mod mutation;
 pub(crate) mod path;
+pub mod process;
 pub(crate) mod rescaling;
 pub mod result;
 pub(crate) mod selection;
