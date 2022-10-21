@@ -92,4 +92,8 @@ pub enum Error {
     Io(#[from] io::Error),
     #[error("child did not terminate successfully")]
     ChildUnsuccessfulTermination(Output),
+    #[error("target objective function value must be finite")]
+    TargetObjFuncValMustBeFinite,
+    #[error("conflicting termination criteria")]
+    ConflictingTerminationCriteria,
 }

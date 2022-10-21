@@ -91,6 +91,7 @@ pub async fn start_controller(
     mut recv: UnboundedReceiver<ControllerEvent>,
     mut report_sender: UnboundedSender<Report>,
     max_num_eval: Option<usize>,
+    target_obj_func_val: Option<f64>,
 ) -> Result<FinalReport, Error> {
     let mut ctx = Context::new(&spec, algo_config, max_num_eval);
 
@@ -130,6 +131,14 @@ pub async fn start_controller(
                         individual.to_json()
                     );
                     ctx.process_individual_eval(individual_id, obj_func_val, individual.clone());
+
+                    if target_obj_func_val
+                        .map(|target| obj_func_val.get() <= target)
+                        .unwrap_or(false)
+                    {
+                        info!("Target objective function value reached");
+                        break;
+                    }
                 } else {
                     trace!("Individual rejected:\n{}", individual.to_json());
                     ctx.process_rejected_individual(individual_id);
@@ -137,7 +146,10 @@ pub async fn start_controller(
 
                 ctx.on_worker_available(next_eval_job_sender)
             }
-            TerminationCommand => break,
+            TerminationCommand => {
+                trace!("Received termination command");
+                break;
+            }
         }
     }
 

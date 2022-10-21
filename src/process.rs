@@ -17,7 +17,11 @@ pub struct ObjFuncProcessDef {
 }
 
 impl ObjFuncProcessDef {
-    pub fn new(program: OsString, args: Vec<OsString>, kill_obj_func_after: Option<Duration>) -> Self {
+    pub fn new(
+        program: OsString,
+        args: Vec<OsString>,
+        kill_obj_func_after: Option<Duration>,
+    ) -> Self {
         Self {
             program,
             args,
@@ -54,6 +58,8 @@ impl AsyncObjectiveFunction for ObjFuncProcessDef {
             .arg(serde_json::to_string(&value).unwrap())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .reap_on_drop(true)
             .spawn()?;
 
         trace!("Spawned objective function process, pid: {:?}", child.id());

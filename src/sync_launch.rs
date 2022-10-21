@@ -1,19 +1,24 @@
-use crate::message::Report;
-use std::panic;
-use std::sync::Arc;
-
 use crate::async_launch;
 use crate::error::Error;
 use crate::message::Command;
+use crate::message::Report;
 use crate::meta::AlgoConfig;
 use crate::meta::AsyncObjectiveFunction;
 use crate::result::FinalReport;
+use crate::termination;
 use crate::termination::TerminationCriterion;
 use crate::{meta::ObjectiveFunction, spec::Spec};
 use async_trait::async_trait;
 use futures::channel::mpsc;
 use futures::executor;
-use itertools::Itertools;
+use futures::pin_mut;
+use futures::select;
+use futures::sink::SinkExt;
+use futures::FutureExt;
+use futures_timer::Delay;
+use log::info;
+use std::panic;
+use std::sync::Arc;
 use tokio::runtime::{Builder, Runtime};
 
 pub fn launch<F, T>(
@@ -44,17 +49,9 @@ where
     F: AsyncObjectiveFunction,
     T: IntoIterator<Item = TerminationCriterion>,
 {
-    let termination_criteria = termination_criteria.into_iter().collect_vec();
+    let termination_criteria = termination::compile(termination_criteria)?;
 
-    let max_num_eval = termination_criteria
-        .iter()
-        .map(|criterion| match criterion {
-            TerminationCriterion::NumObjFuncEval(max_num_eval) => max_num_eval,
-        })
-        .copied()
-        .min();
-
-    let (_cmd_sender, cmd_recv) = mpsc::unbounded::<Command>();
+    let (mut cmd_sender, cmd_recv) = mpsc::unbounded::<Command>();
     let (report_sender, _report_recv) = mpsc::unbounded::<Report>();
 
     let launch_fut = async_launch::launch(
@@ -63,10 +60,32 @@ where
         algo_config,
         cmd_recv,
         report_sender,
-        max_num_eval,
+        termination_criteria.max_num_obj_func_eval,
+        termination_criteria.target_obj_func_val,
     );
 
-    executor::block_on(launch_fut)
+    executor::block_on(async {
+        match termination_criteria.terminate_after {
+            None => launch_fut.await,
+            Some(terminate_after) => {
+                let timeout_fut = Delay::new(terminate_after).fuse();
+                let launch_fut = launch_fut.fuse();
+                pin_mut!(timeout_fut, launch_fut);
+
+                loop {
+                    select! {
+                        () = &mut timeout_fut => {
+                            info!("Abort time reached");
+                            cmd_sender.send(Command::Terminate).await.ok();
+                        }
+                        report = launch_fut => {
+                            return report;
+                        }
+                    }
+                }
+            }
+        }
+    })
 }
 
 struct AsyncObjectiveFunctionImpl<F> {

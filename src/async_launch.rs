@@ -21,6 +21,7 @@ pub async fn launch<F: AsyncObjectiveFunction>(
     cmd_recv: UnboundedReceiver<Command>,
     report_sender: UnboundedSender<Report>,
     max_num_eval: Option<usize>,
+    target_obj_func_val: Option<f64>,
 ) -> Result<FinalReport, Error> {
     let (event_sender, event_recv) = mpsc::unbounded::<ControllerEvent>();
 
@@ -35,7 +36,15 @@ pub async fn launch<F: AsyncObjectiveFunction>(
 
     let num_concurrent = algo_config.num_concurrent;
 
-    let ctrl = start_controller(spec, algo_config, event_recv, report_sender, max_num_eval).fuse();
+    let ctrl = start_controller(
+        spec,
+        algo_config,
+        event_recv,
+        report_sender,
+        max_num_eval,
+        target_obj_func_val,
+    )
+    .fuse();
 
     let obj_func = Arc::new(obj_func);
     let mut workers = future::select_all(

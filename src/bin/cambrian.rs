@@ -7,7 +7,7 @@ use clap::Parser;
 use clap_verbosity_flag::Verbosity;
 use log::info;
 use parse_duration::parse::parse;
-use std::{ffi::OsString, fs, path::PathBuf};
+use std::{ffi::OsString, fs, path::PathBuf, time::Duration};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Run asynchronous adaptive genetic algorithm", long_about = None)]
@@ -17,6 +17,12 @@ struct Args {
 
     #[arg(short = 'n', long)]
     max_obj_func_eval: Option<usize>,
+
+    #[arg(short, long)]
+    target_obj_func_val: Option<f64>,
+
+    #[arg(long)]
+    terminate_after: Option<String>,
 
     #[arg(short = 'p', long)]
     num_parallel: Option<usize>,
@@ -72,14 +78,25 @@ fn make_algo_conf(args: &Args) -> AlgoConfig {
     algo_config_builder.build()
 }
 
-fn assemble_termination_criteria(args: &Args) -> Vec<TerminationCriterion> {
+fn assemble_termination_criteria(args: &Args) -> Result<Vec<TerminationCriterion>> {
     let mut termination_criteria = Vec::new();
 
     if let Some(max_obj_func_eval) = args.max_obj_func_eval {
         termination_criteria.push(TerminationCriterion::NumObjFuncEval(max_obj_func_eval))
     }
 
-    termination_criteria
+    if let Some(target_obj_func_val) = args.target_obj_func_val {
+        termination_criteria.push(TerminationCriterion::TargetObjFuncVal(target_obj_func_val));
+    }
+
+    if let Some(ref terminate_after) = args.terminate_after {
+        let terminate_after =
+            parse_duration(terminate_after).context("Unable to parse \"terminate_after\"")?;
+
+        termination_criteria.push(TerminationCriterion::TerminateAfter(terminate_after));
+    }
+
+    Ok(termination_criteria)
 }
 
 fn make_obj_func_def(
@@ -90,8 +107,7 @@ fn make_obj_func_def(
     let kill_obj_func_after = kill_obj_func_after
         .as_ref()
         .map(|kill_after| {
-            parse(kill_after)
-                .with_context(|| format!("Unable to parse duration from value \"{}\"", kill_after))
+            parse_duration(kill_after).context("Unable to parse \"kill objective function after\"")
         })
         .transpose()?;
 
@@ -102,13 +118,17 @@ fn make_obj_func_def(
     ))
 }
 
+fn parse_duration(value: &str) -> Result<Duration> {
+    parse(value).with_context(|| format!("Unable to parse duration from value \"{}\"", value))
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
     init_logger(&args);
     let spec = load_spec(&args)?;
     let algo_config = make_algo_conf(&args);
-    let termination_criteria = assemble_termination_criteria(&args);
+    let termination_criteria = assemble_termination_criteria(&args)?;
     let obj_func_def = make_obj_func_def(
         args.obj_func_program,
         args.obj_func_program_args,
