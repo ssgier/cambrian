@@ -27,6 +27,9 @@ struct Args {
     #[arg(short, long)]
     out_file: Option<PathBuf>,
 
+    #[arg(long)]
+    report_file: Option<PathBuf>,
+
     #[arg(short = 'k', long)]
     kill_obj_func_after: Option<String>,
 
@@ -112,7 +115,7 @@ fn main() -> Result<()> {
         args.kill_obj_func_after,
     )?;
 
-    let result = sync_launch::launch_with_async_obj_func(
+    let report = sync_launch::launch_with_async_obj_func(
         spec,
         obj_func_def,
         algo_config,
@@ -120,12 +123,18 @@ fn main() -> Result<()> {
     )
     .context("Algorithm run failed")?;
 
+    if let Some(report_file) = args.report_file {
+        info!("Writing report to output file: {}", report_file.display());
+        fs::write(&report_file, report.to_string())
+            .with_context(|| format!("Unable to write output file: {}", &report_file.display()))?;
+    }
+
     if let Some(out_file) = args.out_file {
         info!("Writing result to output file: {}", out_file.display());
-        fs::write(&out_file, result.best_seen.value.to_string())
+        fs::write(&out_file, report.best_seen.value.to_string())
             .with_context(|| format!("Unable to write output file: {}", &out_file.display()))?;
     } else {
-        println!("{}", result.best_seen.value);
+        println!("{}", report.best_seen.value);
     }
 
     info!("Done");

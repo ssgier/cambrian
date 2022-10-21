@@ -26,6 +26,7 @@ use rand::SeedableRng;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use tangram_finite::FiniteF64;
 
 struct Context<'a> {
@@ -36,6 +37,8 @@ struct Context<'a> {
     individuals_by_id: HashMap<usize, Arc<Value>>,
     max_num_eval: Option<usize>,
     eval_count: usize,
+    completed_count: usize,
+    rejected_count: usize,
     initial_value: Value,
     initial_value_job_sent: bool,
     crossover_params: CrossoverParams,
@@ -60,6 +63,8 @@ impl<'a> Context<'a> {
             individuals_by_id: HashMap::new(),
             max_num_eval,
             eval_count: 0,
+            completed_count: 0,
+            rejected_count: 0,
             initial_value_job_sent: false,
             crossover: Crossover::new(spec),
             path: PathContext::default(),
@@ -89,7 +94,9 @@ pub async fn start_controller(
 ) -> Result<FinalReport, Error> {
     let mut ctx = Context::new(&spec, algo_config, max_num_eval);
 
-    info!("Start processing...");
+    info!("Start processing");
+
+    let start_ts = Instant::now();
 
     while let Some(event) = recv.next().await {
         match event {
@@ -124,7 +131,8 @@ pub async fn start_controller(
                     );
                     ctx.process_individual_eval(individual_id, obj_func_val, individual.clone());
                 } else {
-                    trace!("Individual rejected:\n{}", individual.to_json())
+                    trace!("Individual rejected:\n{}", individual.to_json());
+                    ctx.process_rejected_individual(individual_id);
                 }
 
                 ctx.on_worker_available(next_eval_job_sender)
@@ -136,9 +144,12 @@ pub async fn start_controller(
     info!("Processing completed");
 
     match ctx.individuals_evaled.into_iter().next() {
-        Some((ordering_key, individual)) => Ok(FinalReport::from_best_seen(
+        Some((ordering_key, individual)) => Ok(FinalReport::new(
             ordering_key.obj_func_val.get(),
             individual.to_json(),
+            ctx.completed_count,
+            ctx.rejected_count,
+            start_ts.elapsed(),
         )),
         None => Err(Error::NoIndividuals),
     }
@@ -231,6 +242,8 @@ impl<'a> Context<'a> {
         obj_func_val: FiniteF64,
         individual: Arc<Value>,
     ) {
+        self.completed_count += 1;
+
         let ordering_key = IndividualOrderingKey {
             obj_func_val,
             id: individual_id,
@@ -255,5 +268,9 @@ impl<'a> Context<'a> {
             self.individuals_evaled.remove(&last_ordering_key);
             self.individuals_by_id.remove(&last_ordering_key.id);
         }
+    }
+
+    fn process_rejected_individual(&mut self, _individual_id: usize) {
+        self.rejected_count += 1;
     }
 }
