@@ -20,7 +20,7 @@ use futures::{
     StreamExt,
 };
 use lazy_static::__Deref;
-use log::trace;
+use log::{info, trace};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use std::collections::BTreeMap;
@@ -89,6 +89,8 @@ pub async fn start_controller(
 ) -> Result<FinalReport, Error> {
     let mut ctx = Context::new(&spec, algo_config, max_num_eval);
 
+    info!("Start processing...");
+
     while let Some(event) = recv.next().await {
         match event {
             WorkerTerminating => {
@@ -130,6 +132,8 @@ pub async fn start_controller(
             TerminationCommand => break,
         }
     }
+
+    info!("Processing completed");
 
     match ctx.individuals_evaled.into_iter().next() {
         Some((ordering_key, individual)) => Ok(FinalReport::from_best_seen(
@@ -231,6 +235,17 @@ impl<'a> Context<'a> {
             obj_func_val,
             id: individual_id,
         };
+
+        let new_best = self
+            .individuals_evaled
+            .keys()
+            .next()
+            .map(|ordering_key| obj_func_val < ordering_key.obj_func_val)
+            .unwrap_or(true);
+
+        if new_best {
+            info!("New best objective function value: {}", obj_func_val);
+        }
 
         self.individuals_evaled.insert(ordering_key, individual);
 
