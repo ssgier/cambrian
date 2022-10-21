@@ -13,15 +13,15 @@ use async_process::{Child, Command};
 pub struct ObjFuncProcessDef {
     pub program: OsString,
     pub args: Vec<OsString>,
-    pub kill_after: Option<Duration>,
+    pub kill_obj_func_after: Option<Duration>,
 }
 
 impl ObjFuncProcessDef {
-    pub fn new(program: OsString, args: Vec<OsString>, kill_after: Option<Duration>) -> Self {
+    pub fn new(program: OsString, args: Vec<OsString>, kill_obj_func_after: Option<Duration>) -> Self {
         Self {
             program,
             args,
-            kill_after,
+            kill_obj_func_after,
         }
     }
 }
@@ -58,7 +58,7 @@ impl AsyncObjectiveFunction for ObjFuncProcessDef {
 
         trace!("Spawned objective function process, pid: {:?}", child.id());
 
-        match self.kill_after {
+        match self.kill_obj_func_after {
             None => get_child_result(child).await,
             Some(kill_after_duration) => {
                 let timeout_fut = Delay::new(kill_after_duration).fuse();

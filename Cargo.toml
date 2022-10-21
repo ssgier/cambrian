@@ -27,3 +27,6 @@ log = "0.4.17"
 env_logger = "0.9.1"
 async-process = "1.5.0"
 futures-timer = "3.0.2"
+clap = { version = "4.0.17", features = ["derive"] }
+anyhow = "1.0.66"
+parse_duration = "2.1.1"
