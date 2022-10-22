@@ -60,7 +60,22 @@ pub fn extract_from_node<'a>(node: Option<&'a Node>, path: &[&str]) -> Option<&'
                     .map(Box::as_ref),
                 &path[1..],
             ),
-            Real { .. } | Int { .. } | Bool { .. } => panic!("Invalid path"),
+            Variant(variant_name, value) => {
+                if head != variant_name {
+                    panic!("Invalid path");
+                }
+                extract_from_node(Some(value), &path[1..])
+            }
+            Optional(value_option) => {
+                if *head != "optional" {
+                    panic!("Invalid path");
+                }
+                extract_from_node(
+                    value_option.as_ref().map(|boxed| boxed.as_ref()),
+                    &path[1..],
+                )
+            }
+            Real { .. } | Int { .. } | Bool { .. } | Enum(_) => panic!("Invalid path"),
         },
         None => Some(node),
     })

@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use serde_json::value::Number;
 use std::collections::HashMap;
+use std::ops::Deref;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Value(pub Node);
@@ -13,6 +14,9 @@ pub enum Node {
     Bool(bool),
     Sub(HashMap<String, Box<Node>>),
     AnonMap(HashMap<usize, Box<Node>>),
+    Variant(String, Box<Node>),
+    Enum(String),
+    Optional(Option<Box<Node>>),
 }
 
 impl Value {
@@ -29,10 +33,22 @@ impl Node {
             Node::Bool(val) => serde_json::Value::Bool(*val),
             Node::AnonMap(mapping) => Self::map_to_json_obj(mapping),
             Node::Sub(mapping) => Self::map_to_json_obj(mapping),
+            Node::Variant(variant_name, value) => {
+                let mut out_mapping = serde_json::Map::new();
+                out_mapping.insert(variant_name.to_owned(), value.to_json());
+                serde_json::Value::Object(out_mapping)
+            }
+            Node::Enum(variant_name) => serde_json::Value::String(variant_name.to_owned()),
+            Node::Optional(value) => match value {
+                Some(value) => value.to_json(),
+                None => serde_json::Value::Null,
+            },
         }
     }
 
-    fn map_to_json_obj<T: ToString>(map: &HashMap<T, Box<Node>>) -> serde_json::Value {
+    fn map_to_json_obj<T: ToString, N: Deref<Target = Node>>(
+        map: &HashMap<T, N>,
+    ) -> serde_json::Value {
         let mut out_mapping = serde_json::Map::new();
         for (key, val) in map {
             let out_key = key.to_string();

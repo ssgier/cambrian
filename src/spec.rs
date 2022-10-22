@@ -9,14 +9,12 @@ pub struct Spec(pub Node);
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Node {
     Real {
-        optional: bool,
         init: f64,
         scale: f64,
         min: Option<f64>,
         max: Option<f64>,
     },
     Int {
-        optional: bool,
         init: i64,
         scale: f64,
         min: Option<i64>,
@@ -26,15 +24,25 @@ pub enum Node {
         init: bool,
     },
     Sub {
-        optional: bool,
         map: HashMap<String, Box<Node>>,
     },
     AnonMap {
-        optional: bool,
         value_type: Box<Node>,
         init_size: usize,
         min_size: Option<usize>,
         max_size: Option<usize>,
+    },
+    Variant {
+        map: HashMap<String, Box<Node>>,
+        init: String,
+    },
+    Enum {
+        values: Vec<String>,
+        init: String,
+    },
+    Optional {
+        value_type: Box<Node>,
+        init_present: bool,
     },
 }
 
@@ -78,6 +86,23 @@ impl Node {
                     .collect();
 
                 value::Node::Sub(out_map)
+            }
+            Node::Variant { map, init } => value::Node::Variant(
+                init.to_owned(),
+                Box::new(map.get(init).unwrap().initial_value()),
+            ),
+            Node::Enum { init, .. } => value::Node::Enum(init.to_owned()),
+            Node::Optional {
+                value_type,
+                init_present,
+            } => {
+                let result_value = if *init_present {
+                    Some(Box::new(value_type.initial_value()))
+                } else {
+                    None
+                };
+
+                value::Node::Optional(result_value)
             }
         }
     }

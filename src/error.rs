@@ -33,11 +33,6 @@ pub enum Error {
         path_hint: String,
         unknown_type_name: String,
     },
-    #[error("at path {path_hint:?}: unknown value \"{unknown_value:?}\" for probability distribution (\"prob_dist\")")]
-    UnknownProbDist {
-        path_hint: String,
-        unknown_value: String,
-    },
     #[error("at path {path_hint:?}: initial value is not within bounds provided")]
     InitNotWithinBounds { path_hint: String },
     #[error("at path {path_hint:?}: initial size is not within bounds provided")]
@@ -60,6 +55,10 @@ pub enum Error {
     },
     #[error("at path {path_hint:?}: sub must not be empty")]
     EmptySub { path_hint: String },
+    #[error("at path {path_hint:?}: variant must at least two variant values")]
+    NotEnoughVariantValues { path_hint: String },
+    #[error("at path {path_hint:?}: enum must at least two enum values")]
+    NotEnoughEnumValues { path_hint: String },
     #[error("at path {path_hint:?}: missing mandatory value")]
     MandatoryValueMissing { path_hint: String },
     #[error("at path {path_hint:?}: failed to convert number")]
@@ -71,10 +70,23 @@ pub enum Error {
     },
     #[error("at path {path_hint:?}: unexpected key \"{key:?}\"")]
     UnexpectedKey { path_hint: String, key: String },
+    #[error("at path {path_hint:?}: unknown variant \"{variant_name:?}\"")]
+    UnknownVariant {
+        path_hint: String,
+        variant_name: String,
+    },
+    #[error("at path {path_hint:?}: unknown value \"{value:?}\"")]
+    UnknownValue { path_hint: String, value: String },
     #[error("at path {path_hint:?}: anon map keys must be parseable as unsigned integers")]
     InvalidAnonMapKey { path_hint: String },
+    #[error("at path {path_hint:?}: init not a known value: \"{init:?}\"")]
+    InitNotAKnownValue { path_hint: String, init: String },
     #[error("at path {path_hint:?}: value not within bounds")]
     ValueNotWithinBounds { path_hint: String },
+    #[error("at path {path_hint:?}: only one variant is allowed")]
+    OnlyOneVariantAllowed { path_hint: String },
+    #[error("at path {path_hint:?}: enum items must be string")]
+    EnumItemsMustBeString { path_hint: String },
     #[error("at path {path_hint:?} and attribute {attribute_name:?}: number must be finite")]
     NonFiniteNumber {
         path_hint: String,

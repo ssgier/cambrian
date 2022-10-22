@@ -19,6 +19,7 @@ fn anon_map() {
     type: anon map
     valueType:
         type: bool
+        init: false
     initSize: 0
     ";
 

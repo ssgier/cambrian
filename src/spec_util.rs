@@ -11,18 +11,10 @@ pub fn from_yaml_str(yaml_str: &str) -> Result<Spec, Error> {
 
 pub fn is_leaf(spec_node: &Node) -> bool {
     match spec_node {
-        Node::Sub { .. } | Node::AnonMap { .. } => false,
-        Node::Bool { .. } | Node::Real { .. } | Node::Int { .. } => true,
-    }
-}
-
-pub fn is_optional(spec_node: &Node) -> bool {
-    match *spec_node {
-        Node::Bool { .. } => false,
-        Node::Real { optional, .. } => optional,
-        Node::Int { optional, .. } => optional,
-        Node::Sub { optional, .. } => optional,
-        Node::AnonMap { optional, .. } => optional,
+        Node::Sub { .. } | Node::AnonMap { .. } | Node::Variant { .. } | Node::Optional { .. } => {
+            false
+        }
+        Node::Bool { .. } | Node::Real { .. } | Node::Int { .. } | Node::Enum { .. } => true,
     }
 }
 
@@ -45,6 +37,9 @@ fn build_node(yaml_val: &serde_yaml::Value, path: &[&str]) -> Result<Node, Error
         "bool" => build_bool(mapping, path),
         "sub" => build_sub(mapping, path),
         "anon map" => build_anon_map(mapping, path),
+        "variant" => build_variant(mapping, path),
+        "enum" => build_enum(mapping, path),
+        "optional" => build_optional(mapping, path),
         _ => Err(Error::UnknownTypeName {
             path_hint: format_path(path),
             unknown_type_name: type_name.to_string(),
@@ -98,13 +93,8 @@ fn check_finite(num: f64, attribute_name: &str, path: &[&str]) -> Result<(), Err
 }
 
 fn build_real(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
-    check_for_unexpected_attributes(
-        mapping,
-        ["type", "optional", "min", "max", "scale", "init", "dist"],
-        path,
-    )?;
+    check_for_unexpected_attributes(mapping, ["type", "min", "max", "scale", "init"], path)?;
 
-    let optional = extract_is_optional(mapping, path)?;
     let min = extract_real(mapping, "min", path, false)?;
     let max = extract_real(mapping, "max", path, false)?;
 
@@ -131,7 +121,6 @@ fn build_real(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Erro
     check_scale(scale, path)?;
 
     Ok(Node::Real {
-        optional,
         init,
         scale,
         min,
@@ -150,13 +139,8 @@ fn check_scale(scale: f64, path: &[&str]) -> Result<(), Error> {
 }
 
 fn build_int(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
-    check_for_unexpected_attributes(
-        mapping,
-        ["type", "optional", "min", "max", "scale", "init", "dist"],
-        path,
-    )?;
+    check_for_unexpected_attributes(mapping, ["type", "min", "max", "scale", "init"], path)?;
 
-    let optional = extract_is_optional(mapping, path)?;
     let min = extract_int(mapping, "min", path, false)?;
     let max = extract_int(mapping, "max", path, false)?;
 
@@ -183,7 +167,6 @@ fn build_int(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error
     check_scale(scale, path)?;
 
     Ok(Node::Int {
-        optional,
         init,
         scale,
         min,
@@ -195,17 +178,15 @@ fn build_bool(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Erro
     check_for_unexpected_attributes(mapping, ["type", "init"], path)?;
 
     Ok(Node::Bool {
-        init: extract_bool(mapping, "init", path, false)?.unwrap_or(false),
+        init: extract_bool(mapping, "init", path, true)?.unwrap(),
     })
 }
 
 fn build_sub(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
-    let optional = extract_is_optional(mapping, path)?;
-
     let mut out_mapping = HashMap::new();
     for (key, value) in mapping {
         match key.as_str() {
-            Some(attribute_key) if !attribute_key.eq("optional") && !attribute_key.eq("type") => {
+            Some(attribute_key) if !attribute_key.eq("type") => {
                 let path_of_sub = [path, &[attribute_key]].concat();
                 out_mapping.insert(
                     attribute_key.to_string(),
@@ -228,33 +209,15 @@ fn build_sub(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error
         });
     }
 
-    Ok(Node::Sub {
-        optional,
-        map: out_mapping,
-    })
+    Ok(Node::Sub { map: out_mapping })
 }
 
-fn build_anon_map(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
-    check_for_unexpected_attributes(
-        mapping,
-        [
-            "type",
-            "optional",
-            "initSize",
-            "minSize",
-            "maxSize",
-            "valueType",
-        ],
-        path,
-    )?;
-
-    let optional = extract_is_optional(mapping, path)?;
-
-    let value_type = match mapping.get("valueType") {
-        Some(value) => {
-            let path_of_sub = [path, &["(anonymous)"]].concat();
-            Box::new(build_node(value, &path_of_sub)?)
-        }
+fn extract_value_type_attr_value(
+    mapping: &serde_yaml::Mapping,
+    path: &[&str],
+) -> Result<Box<Node>, Error> {
+    return match mapping.get("valueType") {
+        Some(value) => Ok(Box::new(build_node(value, path)?)),
         None => {
             return Err(Error::MandatoryAttributeMissing {
                 path_hint: format_path(path),
@@ -262,6 +225,16 @@ fn build_anon_map(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, 
             });
         }
     };
+}
+
+fn build_anon_map(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
+    check_for_unexpected_attributes(
+        mapping,
+        ["type", "initSize", "minSize", "maxSize", "valueType"],
+        path,
+    )?;
+
+    let value_type = extract_value_type_attr_value(mapping, path)?;
 
     let min_size = extract_usize_attribute_value(mapping, "minSize", path, false)?;
     let max_size = extract_usize_attribute_value(mapping, "maxSize", path, false)?;
@@ -274,9 +247,7 @@ fn build_anon_map(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, 
         });
     }
 
-    let init_size = extract_usize_attribute_value(mapping, "initSize", path, false)?
-        .or(min_size)
-        .unwrap_or(0);
+    let init_size = extract_usize_attribute_value(mapping, "initSize", path, true)?.unwrap();
 
     let out_of_bounds = match (min_size, max_size) {
         (Some(min_size), _) if init_size < min_size => true,
@@ -290,13 +261,119 @@ fn build_anon_map(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, 
         })
     } else {
         Ok(Node::AnonMap {
-            optional,
             value_type,
             init_size,
             min_size,
             max_size,
         })
     }
+}
+
+fn build_variant(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
+    let init_variant_name = extract_string(mapping, "init", path, true)?.unwrap();
+
+    let mut out_mapping = HashMap::new();
+    for (key, value) in mapping {
+        match key.as_str() {
+            Some(attribute_key) if !attribute_key.eq("type") && !attribute_key.eq("init") => {
+                let path_of_sub = [path, &[attribute_key]].concat();
+                out_mapping.insert(
+                    attribute_key.to_string(),
+                    Box::new(build_node(value, &path_of_sub)?),
+                );
+            }
+            None => {
+                return Err(Error::InvalidAttributeKeyType {
+                    path_hint: format_path(path),
+                    formatted_attribute_key: format!("{:?}", key),
+                })
+            }
+            _ => (),
+        }
+    }
+
+    if out_mapping.len() < 2 {
+        return Err(Error::NotEnoughVariantValues {
+            path_hint: format_path(path),
+        });
+    }
+
+    if !out_mapping.contains_key(&init_variant_name) {
+        return Err(Error::InitNotAKnownValue {
+            path_hint: format_path(path),
+            init: init_variant_name,
+        });
+    }
+
+    Ok(Node::Variant {
+        map: out_mapping,
+        init: init_variant_name,
+    })
+}
+
+fn build_enum(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
+    check_for_unexpected_attributes(mapping, ["type", "init", "values"], path)?;
+
+    let mut values = Vec::new();
+    let init_value = extract_string(mapping, "init", path, true)?.unwrap();
+
+    let values_attr_name = "values".to_string();
+    let values_sequence = match mapping.get(&values_attr_name) {
+        None => {
+            return Err(Error::MandatoryAttributeMissing {
+                path_hint: format_path(path),
+                missing_attribute_name: values_attr_name,
+            })
+        }
+        Some(serde_yaml::Value::Sequence(values)) => values,
+        _ => {
+            return Err(Error::InvalidAttributeValueType {
+                path_hint: format_path(path),
+                attribute_name: values_attr_name,
+                expected_type_hint: "a sequence".to_string(),
+            })
+        }
+    };
+
+    if values_sequence.len() < 2 {
+        return Err(Error::NotEnoughEnumValues {
+            path_hint: format_path(path),
+        });
+    }
+
+    for name_value in values_sequence {
+        if let serde_yaml::Value::String(name) = name_value {
+            values.push(name.to_owned());
+        } else {
+            return Err(Error::EnumItemsMustBeString {
+                path_hint: format_path(path),
+            });
+        }
+    }
+
+    if !values.contains(&init_value) {
+        return Err(Error::InitNotAKnownValue {
+            path_hint: format_path(path),
+            init: init_value,
+        });
+    }
+
+    Ok(Node::Enum {
+        values,
+        init: init_value,
+    })
+}
+
+fn build_optional(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
+    check_for_unexpected_attributes(mapping, ["type", "initPresent", "valueType"], path)?;
+
+    let value_type = extract_value_type_attr_value(mapping, path)?;
+    let init_present = extract_bool(mapping, "initPresent", path, true)?.unwrap();
+
+    Ok(Node::Optional {
+        value_type,
+        init_present,
+    })
 }
 
 fn extract_string(
@@ -432,10 +509,6 @@ where
     }
 }
 
-fn extract_is_optional(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<bool, Error> {
-    Ok(extract_bool(mapping, "optional", path, false)?.unwrap_or(false))
-}
-
 fn check_for_unexpected_attributes<const N: usize>(
     mapping: &serde_yaml::Mapping,
     allowed_attributes: [&str; N],
@@ -514,21 +587,9 @@ mod tests {
     }
 
     #[test]
-    fn bool_default() {
-        let yaml_str = "
-        type: bool
-        ";
-        assert!(matches!(
-            from_yaml_str(yaml_str),
-            Ok(Spec(Node::Bool { init: false }))
-        ));
-    }
-
-    #[test]
     fn real() {
         let yaml_str = "
         type: real
-        optional: true
         init: 0.25
         scale: 0.1
         min: -1
@@ -537,7 +598,6 @@ mod tests {
         assert!(matches!(
             from_yaml_str(yaml_str),
             Ok(Spec(Node::Real {
-                optional: true,
                 min: Some(min),
                 max: Some(max),
                 init,
@@ -633,7 +693,6 @@ mod tests {
         assert!(matches!(
             from_yaml_str(yaml_str),
             Ok(Spec(Node::Real {
-                optional: false,
                 min: None,
                 max: None,
                 init,
@@ -664,17 +723,14 @@ mod tests {
     fn int() {
         let yaml_str = "
         type: int
-        optional: true
         init: 2
         scale: 0.5
         min: -1
         max: 10
-        dist: uniform
         ";
         assert!(matches!(
             from_yaml_str(yaml_str),
             Ok(Spec(Node::Int {
-                optional: true,
                 min: Some(-1),
                 max: Some(10),
                 init: 2,
@@ -753,7 +809,6 @@ mod tests {
         assert!(matches!(
             from_yaml_str(yaml_str),
             Ok(Spec(Node::Int {
-                optional: false,
                 min: None,
                 max: None,
                 init: 0,
@@ -766,14 +821,13 @@ mod tests {
     #[test]
     fn sub() {
         let yaml_str = "
-        optional: true
         foo:
             type: bool
+            init: false
         ";
         assert!(matches!(
             from_yaml_str(yaml_str),
             Ok(Spec(Node::Sub {
-                optional: true,
                 map
             })) if map.len() == 1 &&
                 *map.get("foo").unwrap().as_ref() == Node::Bool {init: false}
@@ -781,24 +835,9 @@ mod tests {
     }
 
     #[test]
-    fn sub_default() {
-        let yaml_str = "
-        subItem:
-            type: bool
-        ";
-        assert!(matches!(
-            from_yaml_str(yaml_str),
-            Ok(Spec(Node::Sub {
-                optional: false,
-                ..
-            }))
-        ));
-    }
-
-    #[test]
     fn sub_empty() {
         let yaml_str = "
-        optional: true
+        type: sub
         ";
         assert!(matches!(
             from_yaml_str(yaml_str),
@@ -812,9 +851,9 @@ mod tests {
     fn anon_map() {
         let yaml_str = "
         type: anon map
-        optional: true
         valueType:
             type: bool
+            init: false
         initSize: 2
         minSize: 2
         maxSize: 4
@@ -823,7 +862,6 @@ mod tests {
         assert!(matches!(
             from_yaml_str(yaml_str),
             Ok(Spec(Node::AnonMap {
-                optional: true,
                 init_size: 2,
                 value_type,
                 min_size: Some(2),
@@ -836,15 +874,16 @@ mod tests {
     fn anon_map_defaults() {
         let yaml_str = "
         type: anon map
+        initSize: 1
         valueType:
             type: bool
+            init: false
         ";
 
         assert!(matches!(
             from_yaml_str(yaml_str),
             Ok(Spec(Node::AnonMap {
-                optional: false,
-                init_size: 0,
+                init_size: 1,
                 value_type,
                 min_size: None,
                 max_size: None
@@ -858,6 +897,7 @@ mod tests {
         type: anon map
         valueType:
             type: bool
+            init: false
         maxSize: 0
         ";
 
@@ -887,6 +927,7 @@ mod tests {
         type: anon map
         valueType:
             type: bool
+            init: false
         minSize: 3
         maxSize: 2
         ";
@@ -904,6 +945,7 @@ mod tests {
         type: anon map
         valueType:
             type: bool
+            init: false
         minSize: 2
         maxSize: 3
         initSize: 4
@@ -914,6 +956,180 @@ mod tests {
             Err(Error::InitSizeNotWithinBounds { path_hint })
             if path_hint == "(root)"
         ));
+    }
+
+    #[test]
+    fn variant() {
+        let yaml_str = "
+        type: variant
+        init: bar
+        foo:
+            type: bool
+            init: false
+        bar:
+            type: int
+            init: 0
+            scale: 1
+        ";
+        assert!(matches!(
+            from_yaml_str(yaml_str),
+            Ok(Spec(Node::Variant {
+                map,
+                init
+            })) if map.len() == 2 &&
+                *map.get("foo").unwrap().as_ref() == Node::Bool {init: false} &&
+                matches!(*map.get("bar").unwrap().as_ref(), Node::Int {init: 0, ..}) &&
+                init == *"bar"
+        ));
+    }
+
+    #[test]
+    fn variant_not_enough_values() {
+        let yaml_str = "
+        type: variant
+        init: foo
+        foo:
+            type: bool
+            init: false
+        ";
+        assert!(matches!(
+            from_yaml_str(yaml_str),
+            Err(Error::NotEnoughVariantValues {
+                path_hint
+            }) if path_hint == "(root)"
+        ));
+    }
+
+    #[test]
+    fn variant_unknown_init() {
+        let yaml_str = "
+        type: variant
+        init: bars
+        foo:
+            type: bool
+            init: false
+        bar:
+            type: int
+            init: 0
+            scale: 1
+        ";
+        assert!(matches!(
+            from_yaml_str(yaml_str),
+            Err(Error::InitNotAKnownValue {
+                path_hint,
+                init
+            }) if path_hint == "(root)" && init == "bars"
+        ));
+    }
+
+    #[test]
+    fn enum_spec() {
+        let yaml_str = "
+        type: enum
+        init: bar
+        values:
+        - foo
+        - bar
+        ";
+        assert!(matches!(
+            from_yaml_str(yaml_str),
+            Ok(Spec(Node::Enum {
+                values,
+                init
+            })) if values == vec!["foo", "bar"] &&
+                init == *"bar"
+        ));
+    }
+
+    #[test]
+    fn enum_not_enough_values() {
+        let yaml_str = "
+        type: enum
+        init: foo
+        values:
+        - foo
+        ";
+        assert!(matches!(
+            from_yaml_str(yaml_str),
+            Err(Error::NotEnoughEnumValues {
+                path_hint
+            }) if path_hint == "(root)"
+        ));
+    }
+
+    #[test]
+    fn enum_unknown_init() {
+        let yaml_str = "
+        type: enum
+        init: bars
+        values:
+        - foo
+        - bar
+        ";
+        assert!(matches!(
+            from_yaml_str(yaml_str),
+            Err(Error::InitNotAKnownValue {
+                path_hint,
+                init
+            }) if path_hint == "(root)" && init == "bars"
+        ));
+    }
+
+    #[test]
+    fn enum_items_must_be_string() {
+        let yaml_str = "
+        type: enum
+        init: \"foo\"
+        values:
+        - 0
+        - foo
+        ";
+
+        assert!(matches!(
+            from_yaml_str(yaml_str),
+            Err(Error::EnumItemsMustBeString {
+                path_hint
+            }) if path_hint == "(root)"
+        ));
+    }
+
+    #[test]
+    fn optional() {
+        let yaml_str = "
+        type: optional
+        valueType:
+            type: bool
+            init: true
+        initPresent: true
+        ";
+
+        let expected = Node::Optional {
+            value_type: Box::new(Node::Bool { init: true }),
+            init_present: true,
+        };
+
+        assert_eq!(from_yaml_str(yaml_str).unwrap().0, expected);
+    }
+
+    #[test]
+    fn optional_init_missing() {
+        let yaml_str = "
+        type: optional
+        valueType:
+            type: bool
+            init: true
+        ";
+
+        if let Error::MandatoryAttributeMissing {
+            path_hint,
+            missing_attribute_name,
+        } = from_yaml_str(yaml_str).unwrap_err()
+        {
+            assert_eq!(path_hint, "(root)");
+            assert_eq!(missing_attribute_name, "initPresent");
+        } else {
+            panic!();
+        }
     }
 
     #[test]
@@ -934,13 +1150,16 @@ mod tests {
     fn invalid_attribute_value_type() {
         let yaml_str = "
         type: anon map
-        optional: 1
+        valueType:
+            type: bool
+            init: true
+        maxSize: true
         ";
 
         assert!(matches!(
         from_yaml_str(yaml_str),
             Err(Error::InvalidAttributeValueType { path_hint, attribute_name, expected_type_hint })
-            if path_hint == "(root)" && attribute_name == "optional" && expected_type_hint == "a boolean"
+            if path_hint == "(root)" && attribute_name == "maxSize" && expected_type_hint == "a positive integer"
         ));
     }
 
