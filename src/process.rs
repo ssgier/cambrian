@@ -36,7 +36,7 @@ struct ObjFuncChildResult {
     objFuncVal: Option<f64>,
 }
 
-async fn get_child_result(child: Child) -> Result<Option<f64>, Error> {
+async fn get_child_result(child: Child, json_arg: &str) -> Result<Option<f64>, Error> {
     let output = child.output().await?;
     if output.status.success() {
         let result: ObjFuncChildResult = serde_json::from_slice(&output.stdout)?;
@@ -46,16 +46,20 @@ async fn get_child_result(child: Child) -> Result<Option<f64>, Error> {
             "Child terminated unsuccessfully, status: {:?}",
             output.status
         );
-        Err(Error::ChildUnsuccessfulTermination(output))
+        Err(Error::ChildUnsuccessfulTermination {
+            output,
+            json_arg: json_arg.to_string(),
+        })
     }
 }
 
 #[async_trait]
 impl AsyncObjectiveFunction for ObjFuncProcessDef {
     async fn evaluate(&self, value: serde_json::Value) -> Result<Option<f64>, Error> {
+        let json_arg = serde_json::to_string(&value).unwrap();
         let mut child = Command::new(&self.program)
             .args(&self.args)
-            .arg(serde_json::to_string(&value).unwrap())
+            .arg(&json_arg)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
@@ -65,7 +69,7 @@ impl AsyncObjectiveFunction for ObjFuncProcessDef {
         trace!("Spawned objective function process, pid: {:?}", child.id());
 
         match self.kill_obj_func_after {
-            None => get_child_result(child).await,
+            None => get_child_result(child, &json_arg).await,
             Some(kill_after_duration) => {
                 let timeout_fut = Delay::new(kill_after_duration).fuse();
                 let status_fut = child.status().fuse();
@@ -77,7 +81,7 @@ impl AsyncObjectiveFunction for ObjFuncProcessDef {
                         child.status().await?;
                         Ok(None)
                     }
-                    _ = status_fut => get_child_result(child).await
+                    _ = status_fut => get_child_result(child, &json_arg).await
                 }
             }
         }

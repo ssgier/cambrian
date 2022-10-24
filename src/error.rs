@@ -102,10 +102,24 @@ pub enum Error {
     ClientHungUp,
     #[error(transparent)]
     Io(#[from] io::Error),
-    #[error("child did not terminate successfully")]
-    ChildUnsuccessfulTermination(Output),
+    #[error("{}", format_unsuccessful_child_termination(.output, .json_arg))]
+    ChildUnsuccessfulTermination { output: Output, json_arg: String },
     #[error("target objective function value must be finite")]
     TargetObjFuncValMustBeFinite,
     #[error("conflicting termination criteria")]
     ConflictingTerminationCriteria,
+}
+
+fn format_unsuccessful_child_termination(output: &Output, json_arg: &str) -> String {
+    let mut formatted_stderr = String::from_utf8(output.stderr.clone())
+        .unwrap_or_else(|_| "<non-utf8-output>".to_string());
+
+    let max_len_to_show_all = 500;
+    let too_long_to_show_all_msg = "\n...\n<too long to show all>";
+    if formatted_stderr.len() > max_len_to_show_all {
+        formatted_stderr.truncate(500 - too_long_to_show_all_msg.len());
+        formatted_stderr = format!("{}{}", formatted_stderr, too_long_to_show_all_msg);
+    }
+
+    format!("child did not terminate successfully. Json arg passed to child:\n\n{}\n\nError ourput of child (stderr):\n\n{}", json_arg, formatted_stderr)
 }
