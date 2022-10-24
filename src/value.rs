@@ -17,6 +17,7 @@ pub enum Node {
     Variant(String, Box<Node>),
     Enum(String),
     Optional(Option<Box<Node>>),
+    Const,
 }
 
 impl Value {
@@ -43,6 +44,7 @@ impl Node {
                 Some(value) => value.to_json(),
                 None => serde_json::Value::Null,
             },
+            Node::Const => serde_json::Value::Null,
         }
     }
 

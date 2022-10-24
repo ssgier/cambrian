@@ -75,7 +75,7 @@ pub fn extract_from_node<'a>(node: Option<&'a Node>, path: &[&str]) -> Option<&'
                     &path[1..],
                 )
             }
-            Real { .. } | Int { .. } | Bool { .. } | Enum(_) => panic!("Invalid path"),
+            Real { .. } | Int { .. } | Bool { .. } | Enum(_) | Const => panic!("Invalid path"),
         },
         None => Some(node),
     })

@@ -56,7 +56,7 @@ impl PathNodeContext {
                     child_node.add_nodes_for(value);
                 }
             }
-            Bool { .. } | Int { .. } | Real { .. } | Enum(_) => (),
+            Bool { .. } | Int { .. } | Real { .. } | Enum(_) | Const => (),
         }
     }
 

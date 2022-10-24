@@ -28,6 +28,7 @@ fn build_node(
         } => build_variant(json_val, spec_map, path),
         spec::Node::Enum { ref values, .. } => build_enum(json_val, values, path),
         spec::Node::Optional { ref value_type, .. } => build_optional(json_val, value_type, path),
+        spec::Node::Const => build_const(json_val, path),
     }
 }
 
@@ -269,6 +270,17 @@ fn build_optional(
     })
 }
 
+fn build_const(json_val: &serde_json::Value, path: &[&str]) -> Result<Node, Error> {
+    if let serde_json::Value::Null = json_val {
+        Ok(Node::Const)
+    } else {
+        Err(Error::WrongTypeForValue {
+            path_hint: format_path(path),
+            type_hint: "const".to_string(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -290,6 +302,34 @@ mod tests {
         let result = from_json_str(invalid_json_str, &spec);
 
         assert!(matches!(result, Err(Error::InvalidJson(_))));
+    }
+
+    #[test]
+    fn const_value() {
+        let spec_str = "
+        type: const
+        ";
+
+        let value_str = "null";
+        let spec = spec_util::from_yaml_str(spec_str).unwrap();
+        let result = from_json_str(value_str, &spec);
+
+        assert!(matches!(result, Ok(Value(Node::Const))));
+    }
+
+    #[test]
+    fn const_wrong_value_type() {
+        let spec_str = "
+        type: const
+        ";
+
+        let value_str = "false";
+        let spec = spec_util::from_yaml_str(spec_str).unwrap();
+        let result = from_json_str(value_str, &spec);
+
+        assert!(
+            matches!(result, Err(Error::WrongTypeForValue { path_hint, type_hint }) if path_hint == *"(root)" && type_hint == *"const" )
+        );
     }
 
     #[test]
@@ -794,8 +834,7 @@ mod tests {
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
         let result = from_json_str(value_str, &spec);
 
-        assert!(
-            matches!(result,
+        assert!(matches!(result,
                      Err(Error::WrongTypeForValue { path_hint, type_hint })
                      if path_hint.as_str() == "(root)" && type_hint == "a boolean"));
     }
@@ -814,8 +853,7 @@ mod tests {
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
         let result = from_json_str(value_str, &spec);
 
-        assert!(
-            matches!(result,
+        assert!(matches!(result,
                      Err(Error::MandatoryValueMissing { path_hint })
                      if path_hint.as_str() == "foo"));
     }

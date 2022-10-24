@@ -69,7 +69,7 @@ const DEFAULT_INIT_CROSSOVER_PARAMS: CrossoverParams = CrossoverParams {
 };
 
 const DEFAULT_INIT_MUTATION_PARAMS: MutationParams = MutationParams {
-    mutation_prob: 0.1,
+    mutation_prob: 0.3,
     mutation_scale: 1.0,
 };
 

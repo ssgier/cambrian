@@ -108,6 +108,7 @@ fn do_mutate(
                 rng,
             )
         }
+        (spec::Node::Const, _) => value::Node::Const,
         _ => unreachable!(),
     }
 }
@@ -426,6 +427,31 @@ mod tests {
 
     fn never_mutate_rescaling() -> Rescaling {
         make_rescaling(0.0, 1.0)
+    }
+
+    #[test]
+    fn mutate_const() {
+        let spec_str = "
+        type: const
+        ";
+
+        let value_str = "null";
+
+        let spec = spec_util::from_yaml_str(spec_str).unwrap();
+        let value = value_util::from_json_str(value_str, &spec).unwrap();
+
+        let mutation_params = MutationParams {
+            mutation_prob: 1.0,
+            mutation_scale: 10.0,
+        };
+
+        let mut rng = rng();
+        let mut path_ctx = PathContext::default();
+        path_ctx.0.add_nodes_for(&value.0);
+
+        let result = mutate(&spec, &value, &mutation_params, &mut path_ctx, &mut rng);
+
+        assert_eq!(result.0, value::Node::Const);
     }
 
     #[test]

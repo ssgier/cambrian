@@ -14,7 +14,11 @@ pub fn is_leaf(spec_node: &Node) -> bool {
         Node::Sub { .. } | Node::AnonMap { .. } | Node::Variant { .. } | Node::Optional { .. } => {
             false
         }
-        Node::Bool { .. } | Node::Real { .. } | Node::Int { .. } | Node::Enum { .. } => true,
+        Node::Bool { .. }
+        | Node::Real { .. }
+        | Node::Int { .. }
+        | Node::Enum { .. }
+        | Node::Const => true,
     }
 }
 
@@ -40,6 +44,7 @@ fn build_node(yaml_val: &serde_yaml::Value, path: &[&str]) -> Result<Node, Error
         "variant" => build_variant(mapping, path),
         "enum" => build_enum(mapping, path),
         "optional" => build_optional(mapping, path),
+        "const" => build_const(mapping, path),
         _ => Err(Error::UnknownTypeName {
             path_hint: format_path(path),
             unknown_type_name: type_name.to_string(),
@@ -376,6 +381,11 @@ fn build_optional(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, 
     })
 }
 
+fn build_const(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
+    check_for_unexpected_attributes(mapping, ["type"], path)?;
+    Ok(Node::Const)
+}
+
 fn extract_string(
     mapping: &serde_yaml::Mapping,
     attribute_name: &str,
@@ -571,6 +581,29 @@ mod tests {
         from_yaml_str(yaml_str),
             Err(Error::UnknownTypeName { path_hint, unknown_type_name })
             if path_hint == "(root)" && unknown_type_name == "foo"
+        ));
+    }
+
+    #[test]
+    fn const_node() {
+        let yaml_str = "
+        type: const
+        ";
+
+        assert!(matches!(from_yaml_str(yaml_str), Ok(Spec(Node::Const))))
+    }
+
+    #[test]
+    fn const_unexpected_attribute() {
+        let yaml_str = "
+        type: const
+        init: false
+        ";
+
+        assert!(matches!(
+        from_yaml_str(yaml_str),
+            Err(Error::UnexpectedAttribute { path_hint, unexpected_attribute_name })
+            if path_hint == "(root)" && unexpected_attribute_name == "init"
         ));
     }
 

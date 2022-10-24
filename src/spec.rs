@@ -44,6 +44,7 @@ pub enum Node {
         value_type: Box<Node>,
         init_present: bool,
     },
+    Const,
 }
 
 impl Spec {
@@ -104,6 +105,7 @@ impl Node {
 
                 value::Node::Optional(result_value)
             }
+            Node::Const => value::Node::Const,
         }
     }
 }
@@ -132,6 +134,14 @@ mod tests {
                 type: bool
                 init: true
             initSize: 1 
+        d:
+            type: variant
+            init: foo
+            foo:
+                type: const
+            bar:
+                type: bool
+                init: false
         ";
 
         let expected_init_val = Value(Node::Sub(HashMap::from([
@@ -143,6 +153,10 @@ mod tests {
                     0,
                     Box::new(Node::Bool(true)),
                 )]))),
+            ),
+            (
+                "d".to_string(),
+                Box::new(Node::Variant("foo".to_string(), Box::new(Node::Const))),
             ),
         ])));
 

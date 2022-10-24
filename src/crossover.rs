@@ -99,6 +99,10 @@ where
         path_node_ctx: &mut PathNodeContext,
         rng: &mut StdRng,
     ) -> value::Node {
+        if let spec::Node::Const = spec_node {
+            return value::Node::Const;
+        }
+
         if individuals_ordered.len() > 1 {
             let mut decide_to_crossover = || {
                 Bernoulli::new(crossover_params.crossover_prob)
@@ -150,7 +154,8 @@ where
                     spec::Node::Int { .. }
                     | spec::Node::Real { .. }
                     | spec::Node::Bool { .. }
-                    | spec::Node::Enum { .. } => {
+                    | spec::Node::Enum { .. }
+                    | spec::Node::Const => {
                         unreachable!()
                     }
                 }
@@ -436,10 +441,10 @@ mod tests {
     use super::*;
     use crate::path::testutil::set_rescaling_at_path;
     use crate::rescaling::{CrossoverRescaling, MutationRescaling, Rescaling};
+    use crate::spec_util;
     use crate::testutil::extract_from_value;
     use rand::SeedableRng;
     use std::cell::Cell;
-    use crate::spec_util;
 
     struct SelectionMock<'a> {
         selected_indexes: &'a [usize],
@@ -650,6 +655,34 @@ mod tests {
 
         let value0 = Value(value::Node::Int(1));
         let value1 = Value(value::Node::Int(1));
+
+        let spec = spec_util::from_yaml_str(spec_str).unwrap();
+
+        let maker = TestCrossoverMaker::from_spec(spec);
+        let mut root_path_node_ctx = PathNodeContext::default();
+        root_path_node_ctx.add_nodes_for(&value0.0);
+        root_path_node_ctx.add_nodes_for(&value1.0);
+
+        let sut = maker.make(&[]);
+
+        let result = sut.crossover(
+            &[&value0, &value1],
+            &ALWAYS_CROSSOVER_PARAMS,
+            &mut PathContext(root_path_node_ctx),
+            &mut make_rng(),
+        );
+
+        assert_eq!(result, value1);
+    }
+
+    #[test]
+    fn leaf_const() {
+        let spec_str = "
+        type: const
+        ";
+
+        let value0 = Value(value::Node::Const);
+        let value1 = Value(value::Node::Const);
 
         let spec = spec_util::from_yaml_str(spec_str).unwrap();
 
