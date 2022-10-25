@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::io;
 use std::process::Output;
 use thiserror;
@@ -102,24 +103,29 @@ pub enum Error {
     ClientHungUp,
     #[error(transparent)]
     Io(#[from] io::Error),
-    #[error("{}", format_unsuccessful_child_termination(.output, .json_arg))]
-    ChildUnsuccessfulTermination { output: Output, json_arg: String },
+    #[error("unsuccessful termination of objective function child process.{}",
+            .0.output.status.code().map(|code| format!(" Status code: {}", code))
+            .unwrap_or_else(|| "".to_string()))]
+    ObjFuncProcFailed(ProcOutputWithObjFuncArg),
+    #[error("invalid output from objective function child process")]
+    ObjFuncProcInvalidOutput(ProcOutputWithObjFuncArg),
     #[error("target objective function value must be finite")]
     TargetObjFuncValMustBeFinite,
     #[error("conflicting termination criteria")]
     ConflictingTerminationCriteria,
 }
 
-fn format_unsuccessful_child_termination(output: &Output, json_arg: &str) -> String {
-    let mut formatted_stderr = String::from_utf8(output.stderr.clone())
-        .unwrap_or_else(|_| "<non-utf8-output>".to_string());
+#[derive(Debug)]
+pub struct ProcOutputWithObjFuncArg {
+    pub obj_func_arg: OsString,
+    pub output: Output,
+}
 
-    let max_len_to_show_all = 500;
-    let too_long_to_show_all_msg = "\n...\n<too long to show all>";
-    if formatted_stderr.len() > max_len_to_show_all {
-        formatted_stderr.truncate(500 - too_long_to_show_all_msg.len());
-        formatted_stderr = format!("{}{}", formatted_stderr, too_long_to_show_all_msg);
+impl ProcOutputWithObjFuncArg {
+    pub fn new(obj_func_arg: OsString, output: Output) -> Self {
+        Self {
+            obj_func_arg,
+            output,
+        }
     }
-
-    format!("child did not terminate successfully. Json arg passed to child:\n\n{}\n\nError ourput of child (stderr):\n\n{}", json_arg, formatted_stderr)
 }

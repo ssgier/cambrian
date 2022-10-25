@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
+use cambrian::error::{Error, ProcOutputWithObjFuncArg};
 use cambrian::meta::AlgoConfig;
+use cambrian::result::FinalReport;
 use cambrian::spec::Spec;
 use cambrian::termination::TerminationCriterion;
 use cambrian::{meta::AlgoConfigBuilder, process::ObjFuncProcessDef, spec_util, sync_launch};
@@ -7,6 +9,7 @@ use clap::Parser;
 use clap_verbosity_flag::Verbosity;
 use log::info;
 use parse_duration::parse::parse;
+use std::os::unix::prelude::OsStrExt;
 use std::{ffi::OsString, fs, path::PathBuf, time::Duration};
 
 #[derive(Parser, Debug)]
@@ -31,10 +34,7 @@ struct Args {
     spec_file: PathBuf,
 
     #[arg(short, long)]
-    out_file: Option<PathBuf>,
-
-    #[arg(long)]
-    report_file: Option<PathBuf>,
+    out_dir: Option<PathBuf>,
 
     #[arg(short = 'k', long)]
     kill_obj_func_after: Option<String>,
@@ -122,6 +122,80 @@ fn parse_duration(value: &str) -> Result<Duration> {
     parse(value).with_context(|| format!("Unable to parse duration from value \"{}\"", value))
 }
 
+fn process_report(report: FinalReport, out_dir: &Option<PathBuf>) -> Result<()> {
+    if let Some(out_dir) = out_dir {
+        info!("Creating output directory: {}", out_dir.display());
+        fs::create_dir_all(out_dir).context("Unable to create output directory")?;
+
+        write_file(
+            &out_dir.join("report.txt"),
+            "report",
+            report.to_string().as_bytes(),
+        )?;
+
+        write_file(
+            &out_dir.join("best_seen.json"),
+            "best seen json",
+            report.best_seen.value.to_string().as_bytes(),
+        )?;
+    }
+
+    println!("{}", report.best_seen.value);
+
+    Ok(())
+}
+
+fn write_file(path: &PathBuf, descr: &str, content: &[u8]) -> Result<()> {
+    info!("Writing {} to file: {}", descr, path.display());
+    fs::write(&path, content).with_context(|| format!("Unable to write {} file", descr))
+}
+
+fn dump_diagnostic_files(
+    diagnostic_file_dump_info: (&PathBuf, &ProcOutputWithObjFuncArg),
+) -> Result<()> {
+    let out_dir = diagnostic_file_dump_info.0;
+    let proc_info = diagnostic_file_dump_info.1;
+
+    info!("Creating output directory: {}", out_dir.display());
+    fs::create_dir_all(out_dir).context("Unable to create output directory")?;
+
+    write_file(
+        &out_dir.join("obj_func_arg"),
+        "failed objective function argument",
+        proc_info.obj_func_arg.as_bytes(),
+    )?;
+
+    write_file(
+        &out_dir.join("obj_func_stdout"),
+        "failed objective function stdout",
+        &proc_info.output.stdout,
+    )?;
+
+    write_file(
+        &out_dir.join("obj_func_stderr"),
+        "failed objective function stderr",
+        &proc_info.output.stderr,
+    )?;
+
+    Ok(())
+}
+
+fn diagnostic_file_dump_info<'a, 'b>(
+    out_dir: &'a Option<PathBuf>,
+    result: &'b Result<FinalReport, Error>,
+) -> Option<(&'a PathBuf, &'b ProcOutputWithObjFuncArg)> {
+    match out_dir {
+        Some(out_dir) => match result {
+            Err(Error::ObjFuncProcFailed(proc_out_with_arg))
+            | Err(Error::ObjFuncProcInvalidOutput(proc_out_with_arg)) => {
+                Some((out_dir, proc_out_with_arg))
+            }
+            _ => None,
+        },
+        None => None,
+    }
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -135,29 +209,31 @@ fn main() -> Result<()> {
         args.kill_obj_func_after,
     )?;
 
-    let report = sync_launch::launch_with_async_obj_func(
+    let result = sync_launch::launch_with_async_obj_func(
         spec,
         obj_func_def,
         algo_config,
         termination_criteria,
-    )
-    .context("Algorithm run failed")?;
+    );
 
-    if let Some(report_file) = args.report_file {
-        info!("Writing report to output file: {}", report_file.display());
-        fs::write(&report_file, report.to_string())
-            .with_context(|| format!("Unable to write output file: {}", &report_file.display()))?;
+    let diagnostic_file_dump_info = diagnostic_file_dump_info(&args.out_dir, &result);
+    let do_dump = diagnostic_file_dump_info.is_some();
+
+    if let Some(diagnostic_file_dump_info) = diagnostic_file_dump_info {
+        dump_diagnostic_files(diagnostic_file_dump_info)?;
     }
 
-    if let Some(out_file) = args.out_file {
-        info!("Writing result to output file: {}", out_file.display());
-        fs::write(&out_file, report.best_seen.value.to_string())
-            .with_context(|| format!("Unable to write output file: {}", &out_file.display()))?;
-    } else {
-        println!("{}", report.best_seen.value);
-    }
+    let report = result.with_context(|| {
+        let mut descr = "Algorithm run failed.".to_string();
 
+        if do_dump {
+            descr.push_str(" Diagnostic files (objective function arg, stdout, stderr for objective function process) have been dumped in output directory");
+        }
+
+        descr
+    })?;
+
+    process_report(report, &args.out_dir)?;
     info!("Done");
-
     Ok(())
 }
