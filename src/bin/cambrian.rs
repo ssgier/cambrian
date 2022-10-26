@@ -17,6 +17,9 @@ struct Args {
     #[arg(short, long)]
     verbose: bool,
 
+    #[arg(short, long)]
+    force: bool,
+
     #[arg(short = 'n', long)]
     max_obj_func_eval: Option<usize>,
 
@@ -126,12 +129,6 @@ fn parse_duration(value: &str) -> Result<Duration> {
 
 fn process_report(report: FinalReport, out_dir: &Option<PathBuf>) -> Result<()> {
     if let Some(out_dir) = out_dir {
-        info!(
-            "Creating output directory if not existing: {}",
-            out_dir.display()
-        );
-        fs::create_dir_all(out_dir).context("Unable to create output directory")?;
-
         write_file(
             &out_dir.join("report.txt"),
             "report",
@@ -161,23 +158,20 @@ fn dump_diagnostic_files(
     let out_dir = diagnostic_file_dump_info.0;
     let proc_info = diagnostic_file_dump_info.1;
 
-    info!("Creating output directory: {}", out_dir.display());
-    fs::create_dir_all(out_dir).context("Unable to create output directory")?;
-
     write_file(
-        &out_dir.join("obj_func_arg"),
+        &out_dir.join("failed_obj_func_arg"),
         "failed objective function argument",
         proc_info.obj_func_arg.as_bytes(),
     )?;
 
     write_file(
-        &out_dir.join("obj_func_stdout"),
+        &out_dir.join("failed_obj_func_stdout"),
         "failed objective function stdout",
         &proc_info.output.stdout,
     )?;
 
     write_file(
-        &out_dir.join("obj_func_stderr"),
+        &out_dir.join("failed_obj_func_stderr"),
         "failed objective function stderr",
         &proc_info.output.stderr,
     )?;
@@ -201,10 +195,43 @@ fn diagnostic_file_dump_info<'a, 'b>(
     }
 }
 
+fn handle_existing_out_dir(out_dir: &PathBuf, force: bool) -> Result<()> {
+    let out_dir_exists = out_dir.try_exists().with_context(|| {
+        format!(
+            "Tried to check if output directory already exists, but failed: {}",
+            out_dir.display()
+        )
+    })?;
+
+    if out_dir_exists {
+        if force {
+            info!(
+                "Used -f or --force: removing pre-existing output directory: {}",
+                out_dir.display()
+            );
+            fs::remove_dir_all(out_dir)
+                .context("Failed to remove pre-existing output directory")?;
+        } else {
+            Err(Error::OutputDirectoryAlreadyExists)
+                .context("Output directory alredy exists. Using -f or --force will remove it")?;
+        }
+    }
+
+    info!("Creating output directory: {}", out_dir.display());
+    fs::create_dir_all(out_dir).context("Unable to create output directory")?;
+
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
     init_logger(&args);
+
+    if let Some(out_dir) = &args.out_dir {
+        handle_existing_out_dir(out_dir, args.force)?;
+    }
+
     let spec = load_spec(&args)?;
     let algo_config = make_algo_conf(&args);
     let termination_criteria = assemble_termination_criteria(&args)?;
@@ -232,7 +259,7 @@ fn main() -> Result<()> {
         let mut descr = "Algorithm run failed.".to_string();
 
         if do_dump {
-            descr.push_str(" Diagnostic files (objective function arg, stdout, stderr for objective function process) have been dumped in output directory");
+            descr.push_str(" Diagnostic files (objective function arg, stdout, stderr of failed objective function process) have been dumped in output directory");
         }
 
         descr

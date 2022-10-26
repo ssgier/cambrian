@@ -113,6 +113,8 @@ pub enum Error {
     TargetObjFuncValMustBeFinite,
     #[error("conflicting termination criteria")]
     ConflictingTerminationCriteria,
+    #[error("output directory already exists")]
+    OutputDirectoryAlreadyExists,
 }
 
 #[derive(Debug)]
