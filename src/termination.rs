@@ -6,12 +6,14 @@ pub enum TerminationCriterion {
     NumObjFuncEval(usize),
     TargetObjFuncVal(f64),
     TerminateAfter(Duration),
+    Signal,
 }
 
 pub(crate) struct CompiledTerminationCriteria {
     pub max_num_obj_func_eval: Option<usize>,
     pub target_obj_func_val: Option<f64>,
     pub terminate_after: Option<Duration>,
+    pub terminate_on_signal: bool,
 }
 
 pub(crate) fn compile<T>(termination_criteria: T) -> Result<CompiledTerminationCriteria, Error>
@@ -21,6 +23,7 @@ where
     let mut max_num_obj_func_eval = None;
     let mut target_obj_func_val = None;
     let mut terminate_after = None;
+    let mut terminate_on_signal = false;
 
     for criterion in termination_criteria {
         match criterion {
@@ -33,6 +36,7 @@ where
             TerminateAfter(duration) if terminate_after.is_none() => {
                 terminate_after = Some(duration)
             }
+            Signal => terminate_on_signal = true,
             _ => return Err(Error::ConflictingTerminationCriteria),
         }
     }
@@ -41,5 +45,6 @@ where
         max_num_obj_func_eval,
         target_obj_func_val,
         terminate_after,
+        terminate_on_signal,
     })
 }

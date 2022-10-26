@@ -20,6 +20,9 @@ struct Args {
     #[arg(short, long)]
     force: bool,
 
+    #[arg(long)]
+    no_signal_result: bool,
+
     #[arg(short = 'n', long)]
     max_obj_func_eval: Option<usize>,
 
@@ -99,6 +102,10 @@ fn assemble_termination_criteria(args: &Args) -> Result<Vec<TerminationCriterion
             parse_duration(terminate_after).context("Unable to parse \"terminate_after\"")?;
 
         termination_criteria.push(TerminationCriterion::TerminateAfter(terminate_after));
+    }
+
+    if !args.no_signal_result {
+        termination_criteria.push(TerminationCriterion::Signal)
     }
 
     Ok(termination_criteria)

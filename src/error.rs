@@ -115,6 +115,8 @@ pub enum Error {
     ConflictingTerminationCriteria,
     #[error("output directory already exists")]
     OutputDirectoryAlreadyExists,
+    #[error("failed to set signal handler")]
+    FailedToSetSignalHandler(#[from] ctrlc::Error),
 }
 
 #[derive(Debug)]

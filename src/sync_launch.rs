@@ -9,6 +9,7 @@ use crate::termination;
 use crate::termination::TerminationCriterion;
 use crate::{meta::ObjectiveFunction, spec::Spec};
 use async_trait::async_trait;
+use ctrlc;
 use futures::channel::mpsc;
 use futures::executor;
 use futures::pin_mut;
@@ -63,6 +64,14 @@ where
         termination_criteria.max_num_obj_func_eval,
         termination_criteria.target_obj_func_val,
     );
+
+    if termination_criteria.terminate_on_signal {
+        let mut sender_for_handler = cmd_sender.clone();
+        ctrlc::set_handler(move || {
+            info!("Received signal, will terminate after collecting result");
+            executor::block_on(sender_for_handler.send(Command::Terminate)).ok();
+        })?;
+    }
 
     executor::block_on(async {
         match termination_criteria.terminate_after {
