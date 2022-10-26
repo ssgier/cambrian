@@ -36,7 +36,7 @@ where
             TerminateAfter(duration) if terminate_after.is_none() => {
                 terminate_after = Some(duration)
             }
-            Signal => terminate_on_signal = true,
+            Signal if !terminate_on_signal => terminate_on_signal = true,
             _ => return Err(Error::ConflictingTerminationCriteria),
         }
     }

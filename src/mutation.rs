@@ -180,8 +180,14 @@ fn mutate_anon_map(
             let key_to_remove = *value_map.keys().choose(rng).unwrap();
             value_map.remove(&key_to_remove);
         } else {
+            let value = value_map
+                .values()
+                .choose(rng)
+                .cloned()
+                .unwrap_or_else(|| Box::new(value_type.initial_value()));
+
             let key = path_node_ctx.next_key();
-            value_map.insert(key, Box::new(value_type.initial_value()));
+            value_map.insert(key, value);
         }
     };
 
@@ -368,6 +374,7 @@ fn mutate_int(
         )
         .unwrap()
         .sample(rng)
+        .round()
         .to_i64()
         .unwrap();
 
@@ -1051,14 +1058,8 @@ mod tests {
             for (key, mutated_val) in mutated_map {
                 if let value::Node::Bool(mutated_val) = *mutated_val {
                     let original_val = original_map.get(&key);
-                    match original_val.map(Box::deref) {
-                        Some(value::Node::Bool(original_val)) => {
-                            assert_ne!(mutated_val, *original_val);
-                        }
-                        None => {
-                            assert!(mutated_val);
-                        }
-                        _ => unreachable!(),
+                    if let Some(value::Node::Bool(original_val)) = original_val.map(Box::deref) {
+                        assert_ne!(mutated_val, *original_val);
                     }
                 } else {
                     unreachable!()
@@ -1079,6 +1080,75 @@ mod tests {
 
         assert_eq!(min_size, 1);
         assert_eq!(max_size, 4);
+    }
+
+    #[test]
+    fn mutate_non_empty_anon_map() {
+        let spec_str = "
+        type: anon map
+        initSize: 1
+        minSize: 1
+        valueType:
+            type: int
+            init: 1
+            scale: 1
+        ";
+
+        let value_str = r#"
+        {
+            "0": 10
+        }
+        "#;
+
+        let spec = spec_util::from_yaml_str(spec_str).unwrap();
+        let value = value_util::from_json_str(value_str, &spec).unwrap();
+
+        let mutation_params = MutationParams {
+            mutation_prob: 1.0,
+            mutation_scale: 1e-12,
+        };
+
+        let mut rng = rng();
+        let mut path_ctx = PathContext::default();
+        path_ctx.0.add_nodes_for(&value.0);
+
+        let result = mutate(&spec, &value, &mutation_params, &mut path_ctx, &mut rng);
+
+        assert_eq!(extract_as_int(&result, &["1"]).unwrap(), 10);
+    }
+
+    #[test]
+    fn mutate_empty_anon_map() {
+        let spec_str = "
+        type: anon map
+        initSize: 1
+        minSize: 0
+        valueType:
+            type: int
+            init: 1
+            scale: 1
+        ";
+
+        let value_str = r#"
+        {
+        }
+        "#;
+
+        let spec = spec_util::from_yaml_str(spec_str).unwrap();
+        let value = value_util::from_json_str(value_str, &spec).unwrap();
+
+        let mutation_params = MutationParams {
+            mutation_prob: 1.0,
+            mutation_scale: 1e-12,
+        };
+
+        let mut rng = rng();
+        let mut path_ctx = PathContext::default();
+        path_ctx.0.add_nodes_for(&value.0);
+
+        let result = mutate(&spec, &value, &mutation_params, &mut path_ctx, &mut rng);
+
+        assert_eq!(extract_as_int(&result, &["0"]).unwrap(), 1);
     }
 
     #[test]
