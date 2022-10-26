@@ -6,8 +6,7 @@ use cambrian::spec::Spec;
 use cambrian::termination::TerminationCriterion;
 use cambrian::{meta::AlgoConfigBuilder, process::ObjFuncProcessDef, spec_util, sync_launch};
 use clap::Parser;
-use clap_verbosity_flag::Verbosity;
-use log::info;
+use log::{info, LevelFilter};
 use parse_duration::parse::parse;
 use std::os::unix::prelude::OsStrExt;
 use std::{ffi::OsString, fs, path::PathBuf, time::Duration};
@@ -15,8 +14,8 @@ use std::{ffi::OsString, fs, path::PathBuf, time::Duration};
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Run asynchronous adaptive genetic algorithm", long_about = None)]
 struct Args {
-    #[clap(flatten)]
-    verbose: Option<Verbosity>,
+    #[arg(short, long)]
+    verbose: bool,
 
     #[arg(short = 'n', long)]
     max_obj_func_eval: Option<usize>,
@@ -44,13 +43,16 @@ struct Args {
 }
 
 fn init_logger(args: &Args) {
+    let level_filter = if args.verbose {
+        LevelFilter::Info
+    } else {
+        LevelFilter::Error
+    };
+
     env_logger::Builder::new()
-        .filter_level(
-            args.verbose
-                .as_ref()
-                .map(|v| v.log_level_filter())
-                .unwrap_or_else(|| log::LevelFilter::Error),
-        )
+        .filter_level(level_filter)
+        .format_timestamp(None)
+        .format_level(true)
         .format_module_path(false)
         .format_target(false)
         .init();
@@ -124,7 +126,10 @@ fn parse_duration(value: &str) -> Result<Duration> {
 
 fn process_report(report: FinalReport, out_dir: &Option<PathBuf>) -> Result<()> {
     if let Some(out_dir) = out_dir {
-        info!("Creating output directory: {}", out_dir.display());
+        info!(
+            "Creating output directory if not existing: {}",
+            out_dir.display()
+        );
         fs::create_dir_all(out_dir).context("Unable to create output directory")?;
 
         write_file(
