@@ -164,7 +164,9 @@ fn mutate_anon_map(
         .unwrap()
         .sample(rng);
 
-    let mut value_map = value_map.clone();
+    let mut key_to_remove: Option<usize> = None;
+    let mut key_value_pair_to_add: Option<(usize, value::Node)> = None;
+
     if resize {
         let is_at_min_size = value_map.is_empty()
             || min_size
@@ -177,43 +179,68 @@ fn mutate_anon_map(
         let remove_one = !is_at_min_size && (is_at_max_size || COIN_FLIP.sample(rng));
 
         if remove_one {
-            let key_to_remove = *value_map.keys().choose(rng).unwrap();
-            value_map.remove(&key_to_remove);
+            key_to_remove = Some(*value_map.keys().choose(rng).unwrap());
         } else {
             let value = value_map
                 .values()
                 .choose(rng)
+                .map(Box::deref)
                 .cloned()
-                .unwrap_or_else(|| Box::new(value_type.initial_value()));
+                .unwrap_or_else(|| value_type.initial_value());
 
             let key = path_node_ctx.next_key();
-            value_map.insert(key, value);
+            let child_path_node_ctx = path_node_ctx.get_or_create_child_mut(&key.to_string());
+            let child_mutation_params = child_path_node_ctx
+                .rescaling_ctx
+                .current_rescaling
+                .rescale_mutation(mutation_params);
+
+            let mutated_value_to_add = do_mutate(
+                &value,
+                value_type,
+                &child_mutation_params,
+                child_path_node_ctx,
+                rng,
+            );
+
+            key_value_pair_to_add = Some((key, mutated_value_to_add));
         }
     };
 
-    value::Node::AnonMap(
-        value_map
-            .into_iter()
-            .map(|(key, value)| {
-                let child_path_node_ctx = path_node_ctx.get_or_create_child_mut(&key.to_string());
-                let child_mutation_params = child_path_node_ctx
-                    .rescaling_ctx
-                    .current_rescaling
-                    .rescale_mutation(mutation_params);
+    let mut result_map: HashMap<usize, Box<value::Node>> = value_map
+        .iter()
+        .map(|(key, value)| {
+            let child_path_node_ctx = path_node_ctx.get_or_create_child_mut(&key.to_string());
+            let child_mutation_params = child_path_node_ctx
+                .rescaling_ctx
+                .current_rescaling
+                .rescale_mutation(mutation_params);
 
-                (
-                    key,
-                    Box::new(do_mutate(
-                        &value,
-                        value_type,
-                        &child_mutation_params,
-                        child_path_node_ctx,
-                        rng,
-                    )),
-                )
-            })
-            .collect(),
-    )
+            (
+                *key,
+                Box::new(do_mutate(
+                    value,
+                    value_type,
+                    &child_mutation_params,
+                    child_path_node_ctx,
+                    rng,
+                )),
+            )
+        })
+        .collect();
+
+    match (key_to_remove, key_value_pair_to_add) {
+        (Some(key_to_remove), None) => {
+            result_map.remove(&key_to_remove);
+        }
+        (None, Some((key, value))) => {
+            result_map.insert(key, Box::new(value));
+        }
+        (None, None) => (),
+        (Some(_), Some(_)) => unreachable!(),
+    }
+
+    value::Node::AnonMap(result_map)
 }
 
 fn mutate_variant(
