@@ -1,73 +1,48 @@
-use std::sync::Arc;
-
 use crate::controller::start_controller;
 use crate::error::Error;
-use crate::event::ControllerEvent;
-use crate::message::{Command, Report};
+use crate::message::Command;
 use crate::meta::{AlgoConfig, AsyncObjectiveFunction};
 use crate::result::FinalReport;
 use crate::spec::Spec;
-use crate::worker::start_worker;
-use futures::channel::mpsc;
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
-use futures::select;
+use futures::channel::mpsc::UnboundedReceiver;
+use futures::channel::oneshot;
 use futures::StreamExt;
-use futures::{future, pin_mut, FutureExt};
 
 pub async fn launch<F: AsyncObjectiveFunction>(
     spec: Spec,
     obj_func: F,
     algo_config: AlgoConfig,
-    cmd_recv: UnboundedReceiver<Command>,
-    report_sender: UnboundedSender<Report>,
+    mut cmd_recv: UnboundedReceiver<Command>,
     max_num_eval: Option<usize>,
     target_obj_func_val: Option<f64>,
 ) -> Result<FinalReport, Error> {
-    let (event_sender, event_recv) = mpsc::unbounded::<ControllerEvent>();
+    let mut abort_sig_sender_holder: Option<oneshot::Sender<()>>;
+    let (abort_sig_sender, abort_signal_recv) = oneshot::channel();
+    abort_sig_sender_holder = Some(abort_sig_sender);
 
-    let cmd_event_stream = cmd_recv.map(|cmd| match cmd {
-        Command::Terminate => ControllerEvent::TerminationCommand,
-    });
-
-    let cmd_event_stream = cmd_event_stream
-        .map(Ok)
-        .forward(event_sender.clone())
-        .fuse();
-
-    let num_concurrent = algo_config.num_concurrent;
-
-    let ctrl = start_controller(
-        spec,
+    let controller = start_controller(
         algo_config,
-        event_recv,
-        report_sender,
+        spec,
+        obj_func,
+        abort_signal_recv,
         max_num_eval,
         target_obj_func_val,
-    )
-    .fuse();
+    );
 
-    let obj_func = Arc::new(obj_func);
-    let mut workers = future::select_all(
-        std::iter::repeat_with(|| {
-            let fut = start_worker(obj_func.clone(), event_sender.clone()).fuse();
-            Box::pin(fut)
-        })
-        .take(num_concurrent),
-    )
-    .fuse();
-
-    pin_mut!(ctrl, cmd_event_stream);
+    tokio::pin!(controller);
 
     loop {
-        select! {
-            (worker_result, _, remaining_workers) = workers => {
-                worker_result?;
-                if !remaining_workers.is_empty() {
-                    workers = future::select_all(remaining_workers).fuse();
+        tokio::select! {
+            cmd = cmd_recv.next() => {
+                if let Some(Command::Terminate) = cmd {
+                    abort_sig_sender_holder.take().unwrap().send(()).ok();
+                } else {
+                    return Err(Error::ClientHungUp);
                 }
-            },
-            result = ctrl => return result,
-            _ = cmd_event_stream => return Err(Error::ClientHungUp),
-        };
+            }
+            res = &mut controller => {
+                return res;
+            }
+        }
     }
 }

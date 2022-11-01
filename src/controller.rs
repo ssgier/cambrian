@@ -1,288 +1,128 @@
-use crate::crossover::Crossover;
+use crate::algorithm::EvaluatedIndividual;
+use crate::algorithm::{AlgoContext, IdentifiableIndividual};
 use crate::error::Error;
-use crate::event::{
-    ControllerEvent::{self, *},
-    IndividualEvalJob,
-};
-use crate::message::Report;
-use crate::meta::AlgoConfig;
-use crate::meta::CrossoverParams;
-use crate::meta::MutationParams;
-use crate::mutation::mutate;
-use crate::path::PathContext;
-use crate::result::FinalReport;
 use crate::spec::Spec;
-use crate::value::Value;
-use futures::channel::oneshot::Sender;
-use futures::SinkExt;
-use futures::{
-    channel::mpsc::{UnboundedReceiver, UnboundedSender},
-    StreamExt,
+use crate::{
+    meta::{AlgoConfig, AsyncObjectiveFunction},
+    result::FinalReport,
 };
-use lazy_static::__Deref;
-use log::{info, trace};
-use rand::rngs::StdRng;
-use rand::SeedableRng;
-use std::collections::BTreeMap;
-use std::collections::HashMap;
-use std::sync::Arc;
+use futures::channel::oneshot;
+use futures::stream::FuturesUnordered;
+use futures::TryStreamExt;
+use log::info;
 use std::time::Instant;
 use tangram_finite::FiniteF64;
 
-struct Context<'a> {
-    spec: &'a Spec,
-    _is_stochastic: bool,
-    max_population_size: usize,
-    individuals_evaled: BTreeMap<IndividualOrderingKey, Arc<Value>>,
-    individuals_by_id: HashMap<usize, Arc<Value>>,
-    max_num_eval: Option<usize>,
-    eval_count: usize,
-    completed_count: usize,
-    rejected_count: usize,
-    initial_value: Value,
-    initial_value_job_sent: bool,
-    crossover_params: CrossoverParams,
-    mutation_params: MutationParams,
-    crossover: Crossover<'a>,
-    path: PathContext,
-    rng: StdRng,
-    next_id: usize,
-    num_active_workers: usize,
-}
-
-impl<'a> Context<'a> {
-    fn new(spec: &'a Spec, algo_config: AlgoConfig, max_num_eval: Option<usize>) -> Self {
-        Self {
-            initial_value: spec.initial_value(),
-            spec,
-            _is_stochastic: algo_config.is_stochastic,
-            max_population_size: algo_config.max_population_size,
-            crossover_params: algo_config.init_crossover_params,
-            mutation_params: algo_config.init_mutation_params,
-            individuals_evaled: BTreeMap::new(),
-            individuals_by_id: HashMap::new(),
-            max_num_eval,
-            eval_count: 0,
-            completed_count: 0,
-            rejected_count: 0,
-            initial_value_job_sent: false,
-            crossover: Crossover::new(spec),
-            path: PathContext::default(),
-            rng: StdRng::seed_from_u64(0),
-            next_id: 0,
-            num_active_workers: 0,
-        }
-    }
-}
-
-#[derive(Ord, Eq, PartialEq, PartialOrd, Clone, Debug)]
-struct IndividualOrderingKey {
-    obj_func_val: FiniteF64,
-    id: usize,
-}
-
-fn finitify_obj_func_val(obj_func_val: f64) -> Result<FiniteF64, Error> {
-    FiniteF64::new(obj_func_val).map_err(|_| Error::ObjFuncValMustBeFinite)
-}
-
-pub async fn start_controller(
-    spec: Spec,
+pub async fn start_controller<F: AsyncObjectiveFunction>(
     algo_config: AlgoConfig,
-    mut recv: UnboundedReceiver<ControllerEvent>,
-    mut report_sender: UnboundedSender<Report>,
+    spec: Spec,
+    obj_func: F,
+    mut in_abort_signal_recv: oneshot::Receiver<()>,
     max_num_eval: Option<usize>,
     target_obj_func_val: Option<f64>,
 ) -> Result<FinalReport, Error> {
-    let mut ctx = Context::new(&spec, algo_config, max_num_eval);
+    let start_ts = Instant::now();
 
     info!("Start processing");
 
-    let start_ts = Instant::now();
+    let (abort_signal_sender, out_abort_signal_recv) = async_channel::unbounded::<()>();
+    let mut count_accepted = 0usize;
+    let mut count_rejected = 0usize;
 
-    while let Some(event) = recv.next().await {
-        match event {
-            WorkerTerminating => {
-                ctx.on_worker_terminating();
-                if ctx.num_active_workers == 0 {
-                    break;
+    let mut algo_ctx = AlgoContext::new(
+        spec,
+        algo_config.is_stochastic,
+        algo_config.max_population_size,
+        algo_config.init_crossover_params,
+        algo_config.init_mutation_params,
+    );
+
+    let mut evaled_individuals = FuturesUnordered::new();
+    let mut abort_signal_received = false;
+    let mut pushed_for_eval_count = 0;
+
+    let initial_num_individuals = if let Some(max_num_eval) = max_num_eval {
+        algo_config.num_concurrent.min(max_num_eval)
+    } else {
+        algo_config.num_concurrent
+    };
+
+    for _ in 0..initial_num_individuals {
+        evaled_individuals.push(evaluate_individual(
+            algo_ctx.create_individual(),
+            &obj_func,
+            out_abort_signal_recv.clone(),
+        ));
+    }
+
+    pushed_for_eval_count += initial_num_individuals;
+
+    loop {
+        tokio::select! {
+            evaled_individual = &mut evaled_individuals.try_next() => {
+                match evaled_individual? {
+                    None => break,
+                    Some(evaled_individual) => {
+                        if evaled_individual.obj_func_val.is_some() {
+                            count_accepted += 1;
+                        } else {
+                            count_rejected += 1;
+                        }
+                        algo_ctx.process_individual_eval(evaled_individual);
+
+
+                        if let (Some(target_obj_func_val), Some(best_seen_obj_func_val)) =
+                        (target_obj_func_val, algo_ctx.peek_best_seen_value()) {
+                            if best_seen_obj_func_val <= target_obj_func_val {
+                                break;
+                            }
+                        } else if !abort_signal_received &&
+                            max_num_eval.map(|max_num_eval| max_num_eval > pushed_for_eval_count).unwrap_or(true) {
+
+                            let new_individual = algo_ctx.create_individual();
+                            let eval_future = evaluate_individual(new_individual, &obj_func, out_abort_signal_recv.clone());
+                            evaled_individuals.push(eval_future);
+                            pushed_for_eval_count += 1;
+                        } else if evaled_individuals.is_empty() {
+                            break;
+                        }                     }
                 }
             }
-            WorkerReady { eval_job_sender } => ctx.on_worker_ready(eval_job_sender),
-            IndividualEvalCompleted {
-                obj_func_val,
-                individual_id,
-                next_eval_job_sender,
-            } => {
-                let individual = ctx.individuals_by_id.get(&individual_id).unwrap();
-
-                report_sender
-                    .send(Report::IndividualEvalCompleted {
-                        obj_func_val,
-                        individual: individual.to_json(),
-                    })
-                    .await
-                    .ok();
-
-                if let Some(obj_func_val) = obj_func_val {
-                    let obj_func_val = finitify_obj_func_val(obj_func_val)?;
-                    trace!(
-                        "Received objective function value {} for individual:\n{}",
-                        obj_func_val,
-                        individual.to_json()
-                    );
-                    ctx.process_individual_eval(individual_id, obj_func_val, individual.clone());
-
-                    if target_obj_func_val
-                        .map(|target| obj_func_val.get() <= target)
-                        .unwrap_or(false)
-                    {
-                        info!("Target objective function value reached");
-                        break;
-                    }
-                } else {
-                    trace!("Individual rejected:\n{}", individual.to_json());
-                    ctx.process_rejected_individual(individual_id);
-                }
-
-                ctx.on_worker_available(next_eval_job_sender)
-            }
-            TerminationCommand => {
-                trace!("Received termination command");
-                break;
+            _ = &mut in_abort_signal_recv => {
+                abort_signal_received = true;
+                abort_signal_sender.send(()).await.ok();
             }
         }
     }
 
+    let count_total = count_accepted + count_rejected;
     info!("Processing completed");
 
-    match ctx.individuals_evaled.into_iter().next() {
-        Some((ordering_key, individual)) => Ok(FinalReport::new(
-            ordering_key.obj_func_val.get(),
-            individual.to_json(),
-            ctx.completed_count,
-            ctx.rejected_count,
+    match algo_ctx.best_seen() {
+        Some(best_seen) => Ok(FinalReport::new(
+            best_seen.0,
+            best_seen.1.to_json(),
+            count_total,
+            count_rejected,
             start_ts.elapsed(),
         )),
         None => Err(Error::NoIndividuals),
     }
 }
 
-impl<'a> Context<'a> {
-    fn on_worker_available(&mut self, eval_job_sender: Sender<IndividualEvalJob>) {
-        if self
-            .max_num_eval
-            .map(|max_num| self.eval_count < max_num)
-            .unwrap_or(true)
-        {
-            self.create_and_send_next_eval_job(eval_job_sender);
-            self.eval_count += 1;
-        }
-    }
+async fn evaluate_individual<F: AsyncObjectiveFunction>(
+    individual: IdentifiableIndividual,
+    obj_func: &F,
+    abort_signal_recv: async_channel::Receiver<()>,
+) -> Result<EvaluatedIndividual, Error> {
+    let eval_result = obj_func
+        .evaluate(individual.value.to_json(), abort_signal_recv.clone())
+        .await?;
 
-    fn on_worker_ready(&mut self, eval_job_sender: Sender<IndividualEvalJob>) {
-        self.num_active_workers += 1;
-        self.on_worker_available(eval_job_sender)
-    }
+    let finitified_result = eval_result
+        .map(FiniteF64::new)
+        .transpose()
+        .map_err(|_| Error::ObjFuncValMustBeFinite)?;
 
-    fn on_worker_terminating(&mut self) {
-        self.num_active_workers -= 1;
-    }
-
-    fn make_id(&mut self) -> usize {
-        let result = self.next_id;
-        self.next_id += 1;
-        result
-    }
-
-    fn create_and_send_next_eval_job(&mut self, eval_job_sender: Sender<IndividualEvalJob>) {
-        let individual_id = self.make_id();
-        let individual = if self.initial_value_job_sent {
-            self.create_offspring(individual_id)
-        } else {
-            self.initial_value_job_sent = true;
-            Arc::new(self.initial_value.clone())
-        };
-
-        self.individuals_by_id
-            .insert(individual_id, individual.clone());
-
-        let eval_job = IndividualEvalJob {
-            individual,
-            individual_id,
-        };
-
-        eval_job_sender.send(eval_job).ok();
-    }
-
-    fn create_offspring(&mut self, _individual_id: usize) -> Arc<Value> {
-        let crossover_result = if self.individuals_evaled.is_empty() {
-            self.initial_value.clone()
-        } else {
-            let individuals_ordered: Vec<&Value> = self
-                .individuals_evaled
-                .iter()
-                .map(|ind| ind.1.deref())
-                .collect();
-            self.crossover.crossover(
-                &individuals_ordered,
-                &self.crossover_params,
-                &mut self.path,
-                &mut self.rng,
-            )
-        };
-
-        let result = mutate(
-            self.spec,
-            &crossover_result,
-            &self.mutation_params,
-            &mut self.path,
-            &mut self.rng,
-        );
-
-        trace!(
-            "Offspring created:\ncrossover result:\n{}\nmutation result:\n{}",
-            crossover_result.to_json(),
-            result.to_json()
-        );
-
-        Arc::new(result)
-    }
-
-    fn process_individual_eval(
-        &mut self,
-        individual_id: usize,
-        obj_func_val: FiniteF64,
-        individual: Arc<Value>,
-    ) {
-        self.completed_count += 1;
-
-        let ordering_key = IndividualOrderingKey {
-            obj_func_val,
-            id: individual_id,
-        };
-
-        let new_best = self
-            .individuals_evaled
-            .keys()
-            .next()
-            .map(|ordering_key| obj_func_val < ordering_key.obj_func_val)
-            .unwrap_or(true);
-
-        if new_best {
-            info!("New best objective function value: {}", obj_func_val);
-        }
-
-        self.individuals_evaled.insert(ordering_key, individual);
-
-        while self.individuals_evaled.len() > self.max_population_size {
-            let last_ordering_key: IndividualOrderingKey =
-                self.individuals_evaled.keys().next_back().unwrap().clone();
-            self.individuals_evaled.remove(&last_ordering_key);
-            self.individuals_by_id.remove(&last_ordering_key.id);
-        }
-    }
-
-    fn process_rejected_individual(&mut self, _individual_id: usize) {
-        self.rejected_count += 1;
-    }
+    Ok(EvaluatedIndividual::new(individual, finitified_result))
 }

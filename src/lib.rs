@@ -1,9 +1,9 @@
+pub(crate) mod algorithm;
 pub mod async_launch;
 pub(crate) mod common_util;
 pub(crate) mod controller;
 pub mod crossover;
 pub mod error;
-pub(crate) mod event;
 pub mod message;
 pub mod meta;
 pub mod mutation;
@@ -20,4 +20,3 @@ pub mod termination;
 pub(crate) mod testutil;
 pub mod value;
 pub mod value_util;
-pub(crate) mod worker;

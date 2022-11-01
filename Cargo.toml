@@ -31,3 +31,6 @@ clap = { version = "4.0.17", features = ["derive"] }
 anyhow = "1.0.66"
 parse_duration = "2.1.1"
 ctrlc = "3.2.3"
+command-group = { version = "1.0.8", features = ["with-tokio"] }
+nix = "0.25.0"
+async-channel = "1.7.1"

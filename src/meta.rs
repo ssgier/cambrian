@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 
 use crate::error::Error;
+use async_channel::Receiver;
 
 #[derive(Debug, Clone)]
 pub struct CrossoverParams {
@@ -26,7 +27,11 @@ pub struct AlgoConfig {
 
 #[async_trait]
 pub trait AsyncObjectiveFunction: Sync {
-    async fn evaluate(&self, value: serde_json::Value) -> Result<Option<f64>, Error>;
+    async fn evaluate(
+        &self,
+        value: serde_json::Value,
+        abort_signal_recv: Receiver<()>,
+    ) -> Result<Option<f64>, Error>;
 }
 
 pub trait ObjectiveFunction: Sync + Send + 'static {

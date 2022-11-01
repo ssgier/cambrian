@@ -1,3 +1,4 @@
+use nix::unistd::Pid;
 use std::ffi::OsString;
 use std::io;
 use std::process::Output;
@@ -117,6 +118,10 @@ pub enum Error {
     OutputDirectoryAlreadyExists,
     #[error("failed to set signal handler")]
     FailedToSetSignalHandler(#[from] ctrlc::Error),
+    #[error("failed to kill child process group. PID: {}", .0)]
+    FailedToKillChildProcessGroup(Pid),
+    #[error("failed to reap child process group. PID: {}", .0)]
+    FailedToReapChildProcessGroup(Pid),
 }
 
 #[derive(Debug)]
