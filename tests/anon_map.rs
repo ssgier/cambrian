@@ -51,7 +51,8 @@ fn anon_map() {
         .build();
 
     let termination_criteria = vec![TerminationCriterion::NumObjFuncEval(100)];
-    let result = sync_launch::launch(spec, obj_func, algo_config, termination_criteria).unwrap();
+    let result =
+        sync_launch::launch(spec, obj_func, algo_config, termination_criteria, true).unwrap();
 
     let obj_func_val = result.best_seen.obj_func_val;
     let anon_map_size = extract_anon_map_size(&result.best_seen.value);

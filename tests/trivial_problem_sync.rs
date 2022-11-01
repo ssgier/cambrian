@@ -48,7 +48,7 @@ fn trivial_problem_sync() {
         .init_mutation_params(init_mutation_params).build();
 
     let termination_criteria = vec![TerminationCriterion::NumObjFuncEval(100)];
-    let result = sync_launch::launch(spec, obj_func, algo_config, termination_criteria).unwrap();
+    let result = sync_launch::launch(spec, obj_func, algo_config, termination_criteria, true).unwrap();
 
     let value = TestValue::deserialize(result.best_seen.value).unwrap();
     let obj_func_val = result.best_seen.obj_func_val;

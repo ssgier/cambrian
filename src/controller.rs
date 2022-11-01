@@ -95,14 +95,13 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
         }
     }
 
-    let count_total = count_accepted + count_rejected;
     info!("Processing completed");
 
     match algo_ctx.best_seen() {
         Some(best_seen) => Ok(FinalReport::new(
             best_seen.0,
             best_seen.1.to_json(),
-            count_total,
+            count_accepted,
             count_rejected,
             start_ts.elapsed(),
         )),

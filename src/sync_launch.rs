@@ -27,6 +27,7 @@ pub fn launch<F, T>(
     obj_func: F,
     algo_config: AlgoConfig,
     termination_criteria: T,
+    in_process_computation: bool,
 ) -> Result<FinalReport, Error>
 where
     F: ObjectiveFunction,
@@ -37,6 +38,7 @@ where
         AsyncObjectiveFunctionImpl::wrap(obj_func),
         algo_config,
         termination_criteria,
+        in_process_computation,
     )
 }
 
@@ -45,11 +47,20 @@ pub fn launch_with_async_obj_func<F, T>(
     obj_func: F,
     algo_config: AlgoConfig,
     termination_criteria: T,
+    in_process_computation: bool,
 ) -> Result<FinalReport, Error>
 where
     F: AsyncObjectiveFunction,
     T: IntoIterator<Item = TerminationCriterion>,
 {
+    let mut runtime_builder = if in_process_computation {
+        let mut builder = runtime::Builder::new_multi_thread();
+        builder.worker_threads(algo_config.num_concurrent);
+        builder
+    } else {
+        runtime::Builder::new_current_thread()
+    };
+
     let termination_criteria = termination::compile(termination_criteria)?;
 
     let (mut cmd_sender, cmd_recv) = mpsc::unbounded::<Command>();
@@ -71,7 +82,7 @@ where
         })?;
     }
 
-    runtime::Builder::new_current_thread()
+    runtime_builder
         .enable_all()
         .build()
         .unwrap()

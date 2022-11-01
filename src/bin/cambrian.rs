@@ -253,6 +253,7 @@ fn main() -> Result<()> {
         obj_func_def,
         algo_config,
         termination_criteria,
+        false,
     );
 
     let diagnostic_file_dump_info = diagnostic_file_dump_info(&args.out_dir, &result);
