@@ -187,3 +187,85 @@ impl AlgoContext {
             .next()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::spec;
+    use crate::value;
+
+    const NEVER_CROSSOVER: CrossoverParams = CrossoverParams {
+        crossover_prob: 0.0,
+        selection_pressure: 1.0,
+    };
+
+    const ALWAYS_MUTATE: MutationParams = MutationParams {
+        mutation_prob: 1.0,
+        mutation_scale: 1.0,
+    };
+
+    const TRIVIAL_SPEC: Spec = spec::Spec(spec::Node::Bool { init: true });
+
+    fn make_sut() -> AlgoContext {
+        AlgoContext::new(TRIVIAL_SPEC, false, 1000, NEVER_CROSSOVER, ALWAYS_MUTATE)
+    }
+
+    fn make_evaluated_individual(value: bool, obj_func_val: f64) -> EvaluatedIndividual {
+        let value = value::Value(value::Node::Bool(value));
+
+        let identifiable_individual = IdentifiableIndividual::new(0, value);
+        EvaluatedIndividual::new(
+            identifiable_individual,
+            Some(FiniteF64::new(obj_func_val).unwrap()),
+        )
+    }
+
+    #[test]
+    fn initial_guess_then_mutation() {
+        let mut sut = make_sut();
+
+        assert_eq!(sut.create_individual().value.0, value::Node::Bool(true));
+        for _ in 0..2 {
+            assert_eq!(sut.create_individual().value.0, value::Node::Bool(false));
+        }
+
+        assert_eq!(sut.best_seen(), None);
+    }
+
+    #[test]
+    fn initial_guess_ignored_after_first_evaluation() {
+        let mut sut = make_sut();
+
+        for _ in 0..2 {
+            sut.create_individual();
+        }
+
+        sut.process_individual_eval(make_evaluated_individual(false, 0.1));
+
+        for _ in 0..2 {
+            assert_eq!(sut.create_individual().value.0, value::Node::Bool(true));
+        }
+
+        assert_eq!(
+            sut.best_seen(),
+            Some((0.1, value::Value(value::Node::Bool(false))))
+        );
+    }
+
+    #[test]
+    fn best_seen_overtaken() {
+        let mut sut = make_sut();
+        sut.create_individual();
+        assert_eq!(sut.peek_best_seen_value(), None);
+        sut.process_individual_eval(make_evaluated_individual(true, 0.2));
+        assert_eq!(sut.peek_best_seen_value(), Some(0.2));
+        assert_eq!(sut.create_individual().value.0, value::Node::Bool(false));
+        sut.process_individual_eval(make_evaluated_individual(false, 0.1));
+        assert_eq!(sut.create_individual().value.0, value::Node::Bool(true));
+        assert_eq!(sut.peek_best_seen_value(), Some(0.1));
+        assert_eq!(
+            sut.best_seen(),
+            Some((0.1, value::Value(value::Node::Bool(false))))
+        );
+    }
+}
