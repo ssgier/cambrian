@@ -92,7 +92,6 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
                             evaled_individuals.push(eval_future);
                             pushed_for_eval_count += 1;
                         }
-
                     }
                 }
             }
