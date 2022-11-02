@@ -76,16 +76,24 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
                             if best_seen_obj_func_val <= target_obj_func_val {
                                 break;
                             }
-                        } else if !abort_signal_received &&
-                            max_num_eval.map(|max_num_eval| max_num_eval > pushed_for_eval_count).unwrap_or(true) {
+                        }
 
+                        let (max_num_eval_pushed, max_num_eval_completed) = if let Some(max_num_eval) = max_num_eval {
+                            (pushed_for_eval_count >= max_num_eval, count_accepted + count_rejected >= max_num_eval)
+                        } else {
+                            (false, false)
+                        };
+
+                        if abort_signal_received || max_num_eval_completed {
+                            break;
+                        } else if !max_num_eval_pushed {
                             let new_individual = algo_ctx.create_individual();
                             let eval_future = evaluate_individual(new_individual, &obj_func, out_abort_signal_recv.clone());
                             evaled_individuals.push(eval_future);
                             pushed_for_eval_count += 1;
-                        } else if evaled_individuals.is_empty() {
-                            break;
-                        }                     }
+                        }
+
+                    }
                 }
             }
             _ = &mut in_abort_signal_recv => {
