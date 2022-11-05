@@ -1,6 +1,5 @@
 use cambrian::error::Error;
 use cambrian::meta::AlgoConfigBuilder;
-use cambrian::meta::{CrossoverParams, MutationParams};
 use cambrian::process::ObjFuncProcessDef;
 use cambrian::result::FinalReport;
 use cambrian::{self, spec_util};
@@ -24,21 +23,7 @@ fn run(
 
     let obj_func = ObjFuncProcessDef::new(program_path.into(), vec![], Some(kill_obj_func_after));
 
-    let init_crossover_params = CrossoverParams {
-        crossover_prob: 0.75,
-        selection_pressure: 0.5,
-    };
-
-    let init_mutation_params = MutationParams {
-        mutation_prob: 0.8,
-        mutation_scale: 1.0,
-    };
-
-    let algo_config = AlgoConfigBuilder::new()
-        .init_crossover_params(init_crossover_params)
-        .init_mutation_params(init_mutation_params)
-        .build()
-        .unwrap();
+    let algo_config = AlgoConfigBuilder::new().build().unwrap();
 
     let termination_criteria = vec![TerminationCriterion::TerminateAfter(terminate_after)];
     sync_launch::launch_with_async_obj_func(

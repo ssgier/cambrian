@@ -74,7 +74,11 @@ where
                     presence_values[0]
                 } else {
                     self.selection
-                        .select_value(individuals_ordered, crossover_params, path_node_ctx, rng)
+                        .select_value(
+                            individuals_ordered,
+                            crossover_params.selection_pressure,
+                            rng,
+                        )
                         .is_none()
                 }
             };
@@ -124,7 +128,11 @@ where
                     (*probe).clone()
                 } else {
                     self.selection
-                        .select_ref(individuals_ordered, crossover_params, path_node_ctx, rng)
+                        .select_ref(
+                            individuals_ordered,
+                            crossover_params.selection_pressure,
+                            rng,
+                        )
                         .clone()
                 }
             } else {
@@ -293,8 +301,7 @@ where
         let selected_variant_name = if num_distinct_variant_names > 1 {
             let selected_individual = self.selection.select_ref(
                 individuals_ordered,
-                crossover_params,
-                path_node_ctx,
+                crossover_params.selection_pressure,
                 rng,
             );
 
@@ -469,8 +476,7 @@ mod tests {
         fn select_ref<'a, T>(
             &self,
             individuals_ordered: &[&'a T],
-            _crossover_params: &CrossoverParams,
-            _path_node_ctx: &mut PathNodeContext,
+            _selection_pressure: f64,
             _rng: &mut StdRng,
         ) -> &'a T {
             if individuals_ordered.len() == 1 {
@@ -489,15 +495,10 @@ mod tests {
         fn select_ref<'a, T>(
             &self,
             individuals_ordered: &[&'a T],
-            crossover_params: &CrossoverParams,
-            _path_node_ctx: &mut PathNodeContext,
+            selection_pressure: f64,
             _rng: &mut StdRng,
         ) -> &'a T {
-            let target_idx = if crossover_params.selection_pressure > 0.5 {
-                0
-            } else {
-                1
-            };
+            let target_idx = if selection_pressure > 0.5 { 0 } else { 1 };
             individuals_ordered[target_idx]
         }
     }

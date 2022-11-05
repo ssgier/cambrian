@@ -1,4 +1,3 @@
-use crate::{meta::CrossoverParams, path::PathNodeContext};
 use rand::{rngs::StdRng, seq::SliceRandom};
 use rand_distr::{Bernoulli, Distribution};
 
@@ -20,11 +19,10 @@ impl Selection for SelectionImpl {
     fn select_ref<'a, T>(
         &self,
         individuals_ordered: &[&'a T],
-        crossover_params: &CrossoverParams,
-        _path_node: &mut PathNodeContext,
+        selection_pressure: f64,
         rng: &mut StdRng,
     ) -> &'a T {
-        let dist = Bernoulli::new(crossover_params.selection_pressure).unwrap();
+        let dist = Bernoulli::new(selection_pressure).unwrap();
         for individual in individuals_ordered {
             if dist.sample(rng) {
                 return individual;
@@ -39,20 +37,18 @@ pub trait Selection {
     fn select_ref<'a, T>(
         &self,
         individuals_ordered: &[&'a T],
-        crossover_params: &CrossoverParams,
-        path_node: &mut PathNodeContext,
+        selection_pressure: f64,
         rng: &mut StdRng,
     ) -> &'a T;
 
     fn select_value<T: Clone>(
         &self,
         individuals_ordered: &[T],
-        crossover_params: &CrossoverParams,
-        path_node: &mut PathNodeContext,
+        selection_pressure: f64,
         rng: &mut StdRng,
     ) -> T {
         let individuals_ordered: Vec<&T> = individuals_ordered.iter().collect();
-        self.select_ref(&individuals_ordered, crossover_params, path_node, rng)
+        self.select_ref(&individuals_ordered, selection_pressure, rng)
             .clone()
     }
 }
@@ -83,26 +79,16 @@ mod tests {
     const EPSILON: f64 = 0.01;
 
     fn assert_freqs(selection_pressure: f64, expected_freq_0: f64, expected_freq_1: f64) {
-        let mut path_node = PathNodeContext::default();
         let mut rng = StdRng::seed_from_u64(0);
         let sut = SelectionImpl::new();
 
         let individuals_ordered = [0, 1];
 
-        let crossover_params = CrossoverParams {
-            crossover_prob: 0.0,
-            selection_pressure,
-        };
-
         const N: usize = 10000;
         let mut counts = vec![0, 0];
         for _ in 0..N {
-            let selected_individual = sut.select_value(
-                &individuals_ordered,
-                &crossover_params,
-                &mut path_node,
-                &mut rng,
-            );
+            let selected_individual =
+                sut.select_value(&individuals_ordered, selection_pressure, &mut rng);
             counts[selected_individual] += 1;
         }
 

@@ -6,6 +6,7 @@ pub mod crossover;
 pub mod error;
 pub mod message;
 pub mod meta;
+pub(crate) mod meta_adapt;
 pub mod mutation;
 pub(crate) mod path;
 pub mod process;

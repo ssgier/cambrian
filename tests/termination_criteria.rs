@@ -1,6 +1,5 @@
 use cambrian::error::Error;
 use cambrian::meta::AlgoConfigBuilder;
-use cambrian::meta::{CrossoverParams, MutationParams};
 use cambrian::result::FinalReport;
 use cambrian::{self, meta, spec_util};
 use cambrian::{sync_launch, termination::TerminationCriterion};
@@ -24,21 +23,7 @@ fn run(
         Some(0.1)
     });
 
-    let init_crossover_params = CrossoverParams {
-        crossover_prob: 0.75,
-        selection_pressure: 0.5,
-    };
-
-    let init_mutation_params = MutationParams {
-        mutation_prob: 0.8,
-        mutation_scale: 1.0,
-    };
-
-    let algo_config = AlgoConfigBuilder::new()
-        .init_crossover_params(init_crossover_params)
-        .init_mutation_params(init_mutation_params)
-        .build()
-        .unwrap();
+    let algo_config = AlgoConfigBuilder::new().build().unwrap();
 
     sync_launch::launch(spec, obj_func, algo_config, termination_criteria, true)
 }

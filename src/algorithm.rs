@@ -1,11 +1,14 @@
 pub(crate) use crate::crossover::Crossover;
+use crate::meta_adapt;
 use crate::mutation;
+use crate::selection::{Selection, SelectionImpl};
 use crate::value::Value;
 use crate::{
     meta::{CrossoverParams, MutationParams},
     path::PathContext,
     spec::Spec,
 };
+use itertools::Itertools;
 use log::{info, trace};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
@@ -13,6 +16,10 @@ use rand_distr::num_traits::ToPrimitive;
 use rand_distr::{Bernoulli, Distribution};
 use std::collections::BTreeMap;
 use tangram_finite::FiniteF64;
+
+const META_PARAMS_PROB_EXPLORATORY: f64 = 0.25;
+const META_PARAMS_SELECT_PRESSURE: f64 = 0.2;
+const META_PARAMS_PROB_MUTATION: f64 = 0.5;
 
 const PROB_REEVAL: f64 = 0.5;
 const MIN_POP_SIZE_FOR_REEVAL: usize = 20;
@@ -22,8 +29,6 @@ pub struct AlgoContext {
     spec: Spec,
     individual_sample_size: usize,
     obj_func_val_quantile: f64,
-    crossover_params: CrossoverParams,
-    mutation_params: MutationParams,
 
     individuals: BTreeMap<OrderingKey, IndContext>,
     initial_value: Option<Value>,
@@ -35,6 +40,11 @@ pub struct AlgoContext {
     prob_reeval: f64,
     min_pop_size_for_reeval: usize,
     max_pop_size: usize,
+    meta_params_prob_exploratory: f64,
+    meta_params_select_pressure: f64,
+    meta_params_prob_mutation: f64,
+
+    meta_params_override: Option<(CrossoverParams, MutationParams)>,
 }
 
 impl AlgoContext {
@@ -42,18 +52,19 @@ impl AlgoContext {
         spec: Spec,
         individual_sample_size: usize,
         obj_func_val_quantile: f64,
-        crossover_params: CrossoverParams,
-        mutation_params: MutationParams,
+        meta_params_override: Option<(CrossoverParams, MutationParams)>,
     ) -> Self {
         Self::new_impl(
             spec,
             individual_sample_size,
             obj_func_val_quantile,
-            crossover_params,
-            mutation_params,
             PROB_REEVAL,
             MIN_POP_SIZE_FOR_REEVAL,
             MAX_POP_SIZE,
+            META_PARAMS_PROB_EXPLORATORY,
+            META_PARAMS_SELECT_PRESSURE,
+            META_PARAMS_PROB_MUTATION,
+            meta_params_override,
         )
     }
 
@@ -62,18 +73,18 @@ impl AlgoContext {
         spec: Spec,
         individual_sample_size: usize,
         obj_func_val_quantile: f64,
-        crossover_params: CrossoverParams,
-        mutation_params: MutationParams,
         prob_reeval: f64,
         min_pop_size_for_reeval: usize,
         max_pop_size: usize,
+        meta_params_prob_exploratory: f64,
+        meta_params_select_pressure: f64,
+        meta_params_prob_mutation: f64,
+        meta_params_override: Option<(CrossoverParams, MutationParams)>,
     ) -> Self {
         Self {
             spec,
             individual_sample_size,
             obj_func_val_quantile,
-            crossover_params,
-            mutation_params,
             individuals: BTreeMap::default(),
             initial_value: None,
             crossover: Crossover::new(),
@@ -83,6 +94,10 @@ impl AlgoContext {
             prob_reeval,
             min_pop_size_for_reeval,
             max_pop_size,
+            meta_params_prob_exploratory,
+            meta_params_select_pressure,
+            meta_params_prob_mutation,
+            meta_params_override,
         }
     }
 }
@@ -106,18 +121,24 @@ enum IndState {
     Final(FiniteF64),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct IndContext {
     id: usize,
     pub value: Value,
+    meta_params_used: Option<(CrossoverParams, MutationParams)>,
     state: IndState,
 }
 
 impl IndContext {
-    fn new(id: usize, value: Value) -> Self {
+    fn new(
+        id: usize,
+        value: Value,
+        meta_params_used: Option<(CrossoverParams, MutationParams)>,
+    ) -> Self {
         Self {
             id,
             value,
+            meta_params_used,
             state: IndState::PendingEval(Vec::default()),
         }
     }
@@ -183,21 +204,25 @@ impl AlgoContext {
             }
         }
 
-        let value = if self.initial_value.is_none() {
+        let (value, meta_params_used) = if self.initial_value.is_none() {
             self.initial_value = Some(self.spec.initial_value());
-            self.initial_value.clone().unwrap()
+            (self.initial_value.clone().unwrap(), None)
         } else {
-            self.create_offspring()
+            let (value, crossover_params_used, mutation_params_used) = self.create_offspring();
+
+            (value, Some((crossover_params_used, mutation_params_used)))
         };
 
         let id = self.make_id();
 
         info!("Individual {}: Created", id);
 
-        IndContext::new(id, value)
+        IndContext::new(id, value, meta_params_used)
     }
 
-    fn create_offspring(&mut self) -> Value {
+    fn create_offspring(&mut self) -> (Value, CrossoverParams, MutationParams) {
+        let (crossover_params, mutation_params) = self.next_meta_params();
+
         let individuals_ordered: Vec<&Value> =
             self.individuals.values().map(|ctx| &ctx.value).collect();
         let crossover_result = if individuals_ordered.is_empty() {
@@ -206,7 +231,7 @@ impl AlgoContext {
             self.crossover.crossover(
                 &self.spec,
                 &individuals_ordered,
-                &self.crossover_params,
+                &crossover_params,
                 &mut self.path_ctx,
                 &mut self.rng,
             )
@@ -215,7 +240,7 @@ impl AlgoContext {
         let result = mutation::mutate(
             &self.spec,
             &crossover_result,
-            &self.mutation_params,
+            &mutation_params,
             &mut self.path_ctx,
             &mut self.rng,
         );
@@ -226,7 +251,47 @@ impl AlgoContext {
             result.to_json()
         );
 
-        result
+        (result, crossover_params, mutation_params)
+    }
+
+    fn next_meta_params(&mut self) -> (CrossoverParams, MutationParams) {
+        if let Some(meta_params_override) = &self.meta_params_override {
+            return meta_params_override.clone();
+        }
+
+        if Bernoulli::new(self.meta_params_prob_exploratory)
+            .unwrap()
+            .sample(&mut self.rng)
+        {
+            meta_adapt::create_exploratory(&mut self.rng)
+        } else {
+            let meta_params_ordered = self
+                .individuals
+                .values()
+                .filter_map(|ctx| ctx.meta_params_used.as_ref())
+                .collect_vec();
+
+            if meta_params_ordered.is_empty() {
+                meta_adapt::create_exploratory(&mut self.rng)
+            } else {
+                let selected = SelectionImpl::new()
+                    .select_ref(
+                        &meta_params_ordered,
+                        self.meta_params_select_pressure,
+                        &mut self.rng,
+                    )
+                    .clone();
+
+                if Bernoulli::new(self.meta_params_prob_mutation)
+                    .unwrap()
+                    .sample(&mut self.rng)
+                {
+                    meta_adapt::mutate(selected.0, selected.1, &mut self.rng)
+                } else {
+                    selected
+                }
+            }
+        }
     }
 
     fn summary_obj_func_val(&self, ind_state: &IndState) -> FiniteF64 {
@@ -261,7 +326,11 @@ impl AlgoContext {
     }
 
     fn log_top_obj_func_vals(&self) {
-        let num_to_take = 20.min(self.individuals.len());
+        if self.individuals.len() < 2 {
+            return;
+        }
+
+        let num_to_take = 10.min(self.individuals.len());
 
         let summary_obj_func_vals: Vec<f64> = self
             .individuals
@@ -343,12 +412,16 @@ mod tests {
     const TRIVIAL_SPEC: Spec = spec::Spec(spec::Node::Bool { init: true });
 
     fn make_sut() -> AlgoContext {
-        AlgoContext::new(TRIVIAL_SPEC, 1, 1.0, NEVER_CROSSOVER, ALWAYS_MUTATE)
+        AlgoContext::new(TRIVIAL_SPEC, 1, 1.0, Some((NEVER_CROSSOVER, ALWAYS_MUTATE)))
     }
 
     fn make_result(id: usize, value: bool, obj_func_val: f64) -> (IndContext, Option<FiniteF64>) {
         (
-            IndContext::new(id, Value(value::Node::Bool(value))),
+            IndContext::new(
+                id,
+                Value(value::Node::Bool(value)),
+                Some((NEVER_CROSSOVER, ALWAYS_MUTATE)),
+            ),
             Some(FiniteF64::new(obj_func_val).unwrap()),
         )
     }
@@ -423,11 +496,13 @@ mod tests {
             TRIVIAL_SPEC,
             1,
             1.0,
-            NEVER_CROSSOVER,
-            ALWAYS_MUTATE,
             0.0,
             0,
             max_pop_size,
+            META_PARAMS_PROB_EXPLORATORY,
+            META_PARAMS_SELECT_PRESSURE,
+            META_PARAMS_PROB_MUTATION,
+            Some((NEVER_CROSSOVER, ALWAYS_MUTATE)),
         );
 
         sut.next_individual();
@@ -451,11 +526,13 @@ mod tests {
             TRIVIAL_SPEC,
             sample_size,
             1.0,
-            NEVER_CROSSOVER,
-            ALWAYS_MUTATE,
             prob_reeval,
             min_pop_size_for_reeval,
             MAX_POP_SIZE,
+            META_PARAMS_PROB_EXPLORATORY,
+            META_PARAMS_SELECT_PRESSURE,
+            META_PARAMS_PROB_MUTATION,
+            Some((NEVER_CROSSOVER, ALWAYS_MUTATE)),
         );
 
         sut.next_individual();
@@ -463,14 +540,15 @@ mod tests {
         let (ind_ctx, obj_func_val) = make_result(0, true, 0.2);
         sut.process_individual_eval(ind_ctx, obj_func_val);
         let top_individual = sut.individuals.values().next().unwrap();
-        assert_eq!(
-            *top_individual,
+        assert!(matches!(
+            top_individual,
             IndContext {
                 id: 0,
                 value: Value(value::Node::Bool(true)),
-                state: IndState::Ready(vec![FiniteF64::new(0.2).unwrap()])
-            }
-        );
+                state: IndState::Ready(obj_func_vals),
+                ..
+            } if *obj_func_vals == vec![FiniteF64::new(0.2).unwrap()]
+        ));
 
         // mutated offspring created
         let next_individual = sut.next_individual();
@@ -482,53 +560,57 @@ mod tests {
         // picking the first individual for reevaluation
         let next_individual = sut.next_individual();
         assert_eq!(sut.individuals.len(), 1);
-        assert_eq!(
+        assert!(matches!(
             next_individual,
             IndContext {
                 id: 0,
                 value: Value(value::Node::Bool(true)),
-                state: IndState::PendingEval(vec![FiniteF64::new(0.2).unwrap()])
-            }
-        );
+                state: IndState::PendingEval(ref obj_func_vals),
+                ..
+            } if *obj_func_vals == vec![FiniteF64::new(0.2).unwrap()]
+        ));
 
         // reevaluation result
         sut.process_individual_eval(next_individual, Some(FiniteF64::new(0.1).unwrap()));
 
         // context state transitioned to final after two evaluations
         let top_individual = sut.individuals.values().next().unwrap();
-        assert_eq!(
+        assert!(matches!(
             *top_individual,
             IndContext {
                 id: 0,
                 value: Value(value::Node::Bool(true)),
-                state: IndState::Final(FiniteF64::new(0.1).unwrap())
-            }
-        );
+                state: IndState::Final(obj_func_vals),
+                ..
+            } if obj_func_vals == FiniteF64::new(0.1).unwrap()
+        ));
         assert_eq!(sut.individuals.len(), 2);
 
         // picking the second individual for reevaluation
         let ind_1_for_reeval = sut.next_individual();
         assert_eq!(sut.individuals.len(), 1);
-        assert_eq!(
+        assert!(matches!(
             ind_1_for_reeval,
             IndContext {
                 id: 1,
                 value: Value(value::Node::Bool(false)),
-                state: IndState::PendingEval(vec![FiniteF64::new(0.3).unwrap()])
-            }
-        );
+                state: IndState::PendingEval(ref obj_func_vals),
+                ..
+            } if *obj_func_vals == vec![FiniteF64::new(0.3).unwrap()]
+        ));
 
         // mutated offspring created based on first individual
         let next_individual = sut.next_individual();
         assert_eq!(sut.individuals.len(), 1);
-        assert_eq!(
+        assert!(matches!(
             next_individual,
             IndContext {
                 id: 2,
                 value: Value(value::Node::Bool(false)),
-                state: IndState::PendingEval(vec![])
-            }
-        );
+                state: IndState::PendingEval(ref obj_func_vals),
+                ..
+            } if *obj_func_vals == vec![]
+        ));
 
         // comes back first, better than second, but worse than first
         sut.process_individual_eval(next_individual, Some(FiniteF64::new(0.25).unwrap()));

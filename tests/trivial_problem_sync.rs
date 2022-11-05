@@ -1,9 +1,9 @@
 use cambrian::meta::AlgoConfigBuilder;
-use cambrian::meta::{CrossoverParams, MutationParams};
 use cambrian::{self, meta, spec_util};
 use cambrian::{sync_launch, termination::TerminationCriterion};
 use float_cmp::approx_eq;
 use serde::Deserialize;
+use std::time::Duration;
 
 #[derive(Debug, Deserialize)]
 struct TestValue {
@@ -33,23 +33,13 @@ fn trivial_problem_sync() {
         Some(x * x + y * y)
     });
 
-    let init_crossover_params = CrossoverParams {
-        crossover_prob: 0.75,
-        selection_pressure: 0.5,
-    };
+    let algo_config = AlgoConfigBuilder::new().build().unwrap();
 
-    let init_mutation_params = MutationParams {
-        mutation_prob: 0.8,
-        mutation_scale: 1.0,
-    };
+    let termination_criteria = vec![
+        TerminationCriterion::TargetObjFuncVal(1e-6),
+        TerminationCriterion::TerminateAfter(Duration::from_secs(1)),
+    ];
 
-    let algo_config = AlgoConfigBuilder::new()
-        .init_crossover_params(init_crossover_params)
-        .init_mutation_params(init_mutation_params)
-        .build()
-        .unwrap();
-
-    let termination_criteria = vec![TerminationCriterion::NumObjFuncEval(100)];
     let result =
         sync_launch::launch(spec, obj_func, algo_config, termination_criteria, true).unwrap();
 

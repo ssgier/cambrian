@@ -33,8 +33,7 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
         spec,
         algo_config.individual_sample_size,
         algo_config.obj_func_val_quantile,
-        algo_config.init_crossover_params,
-        algo_config.init_mutation_params,
+        None,
     );
 
     let mut evaled_individuals = FuturesUnordered::new();
