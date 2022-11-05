@@ -1,11 +1,6 @@
-# cambrian &emsp; [![MIT licensed][mit-badge]][mit-url] [![Build Status][actions-badge]][actions-url]
+# cambrian &emsp;
 
-[mit-badge]: https://img.shields.io/badge/license-MIT-blue.svg
-[mit-url]: https://github.com/ssgier/cambrian/blob/main/LICENSE
-[actions-badge]: https://github.com/ssgier/cambrian/actions/workflows/build.yml/badge.svg
-[actions-url]: https://github.com/ssgier/cambrian/actions/workflows/build.yml
-
-## Asynchronous Adaptive Genetic Algorithm
+### Asynchronous Adaptive Genetic Algorithm
 
 * No generations, no iterations. As soon as resources become available, new individuals are spawned and evaluated. This allows for full exploitation of computational resources, never leaving workers idle waiting for evaluations of others to complete.
 * Tree encoding.
