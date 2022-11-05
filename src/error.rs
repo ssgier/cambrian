@@ -122,6 +122,20 @@ pub enum Error {
     FailedToKillChildProcessGroup(Pid),
     #[error("failed to reap child process group. PID: {}", .0)]
     FailedToReapChildProcessGroup(Pid),
+    #[error("quantile must be in [0, 1]")]
+    InvalidQuantile,
+    #[error("sample size must be strictly positive")]
+    ZeroSampleSize,
+    #[error("number of concurrent objective function evaluations must be strictly positive")]
+    ZeroNumConcurrent,
+    #[error("crossover probability must be in [0, 1]")]
+    InvalidCrossoverProbability,
+    #[error("selection pressure must be in [0, 1]")]
+    InvalidSelectionPressure,
+    #[error("mutation probability must be in [0, 1]")]
+    InvalidMutationProbability,
+    #[error("mutation scale must be strictly positive")]
+    InvalidMutationScale,
 }
 
 #[derive(Debug)]

@@ -37,7 +37,8 @@ fn run(
     let algo_config = AlgoConfigBuilder::new()
         .init_crossover_params(init_crossover_params)
         .init_mutation_params(init_mutation_params)
-        .build();
+        .build()
+        .unwrap();
 
     sync_launch::launch(spec, obj_func, algo_config, termination_criteria, true)
 }

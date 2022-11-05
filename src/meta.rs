@@ -18,9 +18,9 @@ pub struct MutationParams {
 
 #[derive(Debug, Clone)]
 pub struct AlgoConfig {
-    pub is_stochastic: bool,
+    pub individual_sample_size: usize,
+    pub obj_func_val_quantile: f64,
     pub num_concurrent: usize,
-    pub max_population_size: usize,
     pub init_crossover_params: CrossoverParams,
     pub init_mutation_params: MutationParams,
 }
@@ -59,14 +59,16 @@ where
 }
 
 pub struct AlgoConfigBuilder {
-    is_stochastic: Option<bool>,
+    individual_sample_size: Option<usize>,
+    obj_func_val_quantile: Option<f64>,
     num_concurrent: Option<usize>,
-    max_population_size: Option<usize>,
     init_crossover_params: Option<CrossoverParams>,
     init_mutation_params: Option<MutationParams>,
 }
 
-const DEFAULT_POPULATION_SIZE: usize = 20;
+const DEFAULT_IND_SAMPLE_SIZE: usize = 1;
+
+const DEFAULT_QUANTILE: f64 = 1.0;
 
 const DEFAULT_INIT_CROSSOVER_PARAMS: CrossoverParams = CrossoverParams {
     crossover_prob: 0.75,
@@ -85,18 +87,18 @@ impl Default for AlgoConfigBuilder {
 }
 
 impl AlgoConfigBuilder {
-    pub fn is_stochastic(&mut self, is_stochastic: bool) -> &mut Self {
-        self.is_stochastic = Some(is_stochastic);
+    pub fn individual_sample_size(&mut self, individual_sample_size: usize) -> &mut Self {
+        self.individual_sample_size = Some(individual_sample_size);
+        self
+    }
+
+    pub fn obj_func_val_quantile(&mut self, obj_func_val_quantile: f64) -> &mut Self {
+        self.obj_func_val_quantile = Some(obj_func_val_quantile);
         self
     }
 
     pub fn num_concurrent(&mut self, num_concurrent: usize) -> &mut Self {
         self.num_concurrent = Some(num_concurrent);
-        self
-    }
-
-    pub fn max_population_size(&mut self, max_population_size: usize) -> &mut Self {
-        self.max_population_size = Some(max_population_size);
         self
     }
 
@@ -112,19 +114,21 @@ impl AlgoConfigBuilder {
 
     pub fn new() -> Self {
         Self {
-            is_stochastic: None,
+            individual_sample_size: None,
+            obj_func_val_quantile: None,
             num_concurrent: None,
-            max_population_size: None,
             init_crossover_params: None,
             init_mutation_params: None,
         }
     }
 
-    pub fn build(&mut self) -> AlgoConfig {
-        AlgoConfig {
-            is_stochastic: self.is_stochastic.unwrap_or(false),
+    pub fn build(&mut self) -> Result<AlgoConfig, Error> {
+        let algo_config = AlgoConfig {
+            individual_sample_size: self
+                .individual_sample_size
+                .unwrap_or(DEFAULT_IND_SAMPLE_SIZE),
+            obj_func_val_quantile: self.obj_func_val_quantile.unwrap_or(DEFAULT_QUANTILE),
             num_concurrent: self.num_concurrent.unwrap_or(1),
-            max_population_size: self.max_population_size.unwrap_or(DEFAULT_POPULATION_SIZE),
             init_crossover_params: self
                 .init_crossover_params
                 .clone()
@@ -133,6 +137,44 @@ impl AlgoConfigBuilder {
                 .init_mutation_params
                 .clone()
                 .unwrap_or(DEFAULT_INIT_MUTATION_PARAMS),
+        };
+
+        if algo_config.obj_func_val_quantile < 0.0 || algo_config.obj_func_val_quantile > 1.0 {
+            return Err(Error::InvalidQuantile);
         }
+
+        if algo_config.individual_sample_size == 0 {
+            return Err(Error::ZeroSampleSize);
+        }
+
+        if algo_config.num_concurrent == 0 {
+            return Err(Error::ZeroNumConcurrent);
+        }
+
+        if algo_config.init_crossover_params.crossover_prob < 0.0
+            || algo_config.init_crossover_params.crossover_prob > 1.0
+        {
+            return Err(Error::InvalidCrossoverProbability);
+        }
+
+        if algo_config.init_crossover_params.selection_pressure < 0.0
+            || algo_config.init_crossover_params.selection_pressure > 1.0
+        {
+            return Err(Error::InvalidSelectionPressure);
+        }
+
+        if algo_config.init_mutation_params.mutation_prob < 0.0
+            || algo_config.init_mutation_params.mutation_prob > 1.0
+        {
+            return Err(Error::InvalidMutationProbability);
+        }
+
+        if algo_config.init_mutation_params.mutation_scale < 0.0
+            || algo_config.init_mutation_params.mutation_scale > 1.0
+        {
+            return Err(Error::InvalidMutationScale);
+        }
+
+        Ok(algo_config)
     }
 }

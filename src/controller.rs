@@ -1,5 +1,5 @@
-use crate::algorithm::EvaluatedIndividual;
-use crate::algorithm::{AlgoContext, IdentifiableIndividual};
+use crate::algorithm::AlgoContext;
+use crate::algorithm::IndContext;
 use crate::error::Error;
 use crate::spec::Spec;
 use crate::{
@@ -31,8 +31,8 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
 
     let mut algo_ctx = AlgoContext::new(
         spec,
-        algo_config.is_stochastic,
-        algo_config.max_population_size,
+        algo_config.individual_sample_size,
+        algo_config.obj_func_val_quantile,
         algo_config.init_crossover_params,
         algo_config.init_mutation_params,
     );
@@ -49,7 +49,7 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
 
     for _ in 0..initial_num_individuals {
         evaled_individuals.push(evaluate_individual(
-            algo_ctx.create_individual(),
+            algo_ctx.next_individual(),
             &obj_func,
             out_abort_signal_recv.clone(),
         ));
@@ -63,17 +63,17 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
                 match evaled_individual? {
                     None => break,
                     Some(evaled_individual) => {
-                        if evaled_individual.obj_func_val.is_some() {
+                        if evaled_individual.0.is_some() {
                             count_accepted += 1;
                         } else {
                             count_rejected += 1;
                         }
-                        algo_ctx.process_individual_eval(evaled_individual);
+                        algo_ctx.process_individual_eval(evaled_individual.1, evaled_individual.0);
 
 
-                        if let (Some(target_obj_func_val), Some(best_seen_obj_func_val)) =
-                        (target_obj_func_val, algo_ctx.peek_best_seen_value()) {
-                            if best_seen_obj_func_val <= target_obj_func_val {
+                        if let (Some(target_obj_func_val), Some(best_seen_final)) =
+                        (target_obj_func_val, algo_ctx.best_seen_final()) {
+                            if best_seen_final.0.get() <= target_obj_func_val {
                                 break;
                             }
                         }
@@ -87,7 +87,7 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
                         if abort_signal_received || max_num_eval_completed {
                             break;
                         } else if !max_num_eval_pushed {
-                            let new_individual = algo_ctx.create_individual();
+                            let new_individual = algo_ctx.next_individual();
                             let eval_future = evaluate_individual(new_individual, &obj_func, out_abort_signal_recv.clone());
                             evaled_individuals.push(eval_future);
                             pushed_for_eval_count += 1;
@@ -104,9 +104,9 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
 
     info!("Processing completed");
 
-    match algo_ctx.best_seen() {
+    match algo_ctx.best_seen_final() {
         Some(best_seen) => Ok(FinalReport::new(
-            best_seen.0,
+            best_seen.0.get(),
             best_seen.1.to_json(),
             count_accepted,
             count_rejected,
@@ -116,8 +116,10 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
     }
 }
 
+struct EvaluatedIndividual(Option<FiniteF64>, IndContext);
+
 async fn evaluate_individual<F: AsyncObjectiveFunction>(
-    individual: IdentifiableIndividual,
+    individual: IndContext,
     obj_func: &F,
     abort_signal_recv: async_channel::Receiver<()>,
 ) -> Result<EvaluatedIndividual, Error> {
@@ -130,5 +132,5 @@ async fn evaluate_individual<F: AsyncObjectiveFunction>(
         .transpose()
         .map_err(|_| Error::ObjFuncValMustBeFinite)?;
 
-    Ok(EvaluatedIndividual::new(individual, finitified_result))
+    Ok(EvaluatedIndividual(finitified_result, individual))
 }

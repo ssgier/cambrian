@@ -1,4 +1,4 @@
-use crate::crossover::Crossover;
+pub(crate) use crate::crossover::Crossover;
 use crate::mutation;
 use crate::value::Value;
 use crate::{
@@ -9,86 +9,130 @@ use crate::{
 use log::{info, trace};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand_distr::num_traits::ToPrimitive;
+use rand_distr::{Bernoulli, Distribution};
 use std::collections::BTreeMap;
 use tangram_finite::FiniteF64;
 
-#[derive(Ord, Eq, PartialEq, PartialOrd, Clone, Debug)]
-struct IndividualOrderingKey {
-    obj_func_val: FiniteF64,
-    id: usize,
-}
-
-impl IndividualOrderingKey {
-    fn new(id: usize, obj_func_val: FiniteF64) -> Self {
-        Self { obj_func_val, id }
-    }
-}
+const PROB_REEVAL: f64 = 0.5;
+const MIN_POP_SIZE_FOR_REEVAL: usize = 20;
+const MAX_POP_SIZE: usize = 1000;
 
 pub struct AlgoContext {
     spec: Spec,
-    _is_stochastic: bool,
-    max_population_size: usize,
+    individual_sample_size: usize,
+    obj_func_val_quantile: f64,
     crossover_params: CrossoverParams,
     mutation_params: MutationParams,
 
-    individuals_evaled: BTreeMap<IndividualOrderingKey, Value>,
+    individuals: BTreeMap<OrderingKey, IndContext>,
     initial_value: Option<Value>,
     crossover: Crossover,
     path_ctx: PathContext,
     rng: StdRng,
     next_id: usize,
+
+    prob_reeval: f64,
+    min_pop_size_for_reeval: usize,
+    max_pop_size: usize,
 }
 
 impl AlgoContext {
     pub fn new(
         spec: Spec,
-        is_stochastic: bool,
-        max_population_size: usize,
+        individual_sample_size: usize,
+        obj_func_val_quantile: f64,
         crossover_params: CrossoverParams,
         mutation_params: MutationParams,
     ) -> Self {
-        Self {
+        Self::new_impl(
             spec,
-            _is_stochastic: is_stochastic,
-            max_population_size,
+            individual_sample_size,
+            obj_func_val_quantile,
             crossover_params,
             mutation_params,
-            individuals_evaled: BTreeMap::new(),
+            PROB_REEVAL,
+            MIN_POP_SIZE_FOR_REEVAL,
+            MAX_POP_SIZE,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn new_impl(
+        spec: Spec,
+        individual_sample_size: usize,
+        obj_func_val_quantile: f64,
+        crossover_params: CrossoverParams,
+        mutation_params: MutationParams,
+        prob_reeval: f64,
+        min_pop_size_for_reeval: usize,
+        max_pop_size: usize,
+    ) -> Self {
+        Self {
+            spec,
+            individual_sample_size,
+            obj_func_val_quantile,
+            crossover_params,
+            mutation_params,
+            individuals: BTreeMap::default(),
             initial_value: None,
             crossover: Crossover::new(),
             path_ctx: PathContext::default(),
             rng: StdRng::seed_from_u64(0),
             next_id: 0,
+            prob_reeval,
+            min_pop_size_for_reeval,
+            max_pop_size,
         }
     }
 }
 
-pub struct IdentifiableIndividual {
+#[derive(Ord, Eq, PartialEq, PartialOrd, Clone, Debug)]
+struct OrderingKey {
+    obj_func_val: FiniteF64,
+    id: usize,
+}
+
+impl OrderingKey {
+    fn new(id: usize, obj_func_val: FiniteF64) -> Self {
+        Self { obj_func_val, id }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum IndState {
+    PendingEval(Vec<FiniteF64>),
+    Ready(Vec<FiniteF64>),
+    Final(FiniteF64),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct IndContext {
     id: usize,
     pub value: Value,
+    state: IndState,
 }
 
-impl IdentifiableIndividual {
+impl IndContext {
     fn new(id: usize, value: Value) -> Self {
-        Self { id, value }
-    }
-}
-
-pub struct EvaluatedIndividual {
-    pub identifiable_individual: IdentifiableIndividual,
-    pub obj_func_val: Option<FiniteF64>,
-}
-
-impl EvaluatedIndividual {
-    pub fn new(
-        identifiable_individual: IdentifiableIndividual,
-        obj_func_val: Option<FiniteF64>,
-    ) -> Self {
         Self {
-            identifiable_individual,
-            obj_func_val,
+            id,
+            value,
+            state: IndState::PendingEval(Vec::default()),
         }
     }
+}
+
+fn summary_obj_func_val(obj_func_vals: &[FiniteF64], quantile: f64) -> FiniteF64 {
+    let n = obj_func_vals.len().to_f64().unwrap();
+    let loc_target = (n - 1.0) * quantile;
+    let left_idx_f64 = loc_target.floor();
+    let left_idx = left_idx_f64.to_usize().unwrap();
+    let right_idx = loc_target.ceil().to_usize().unwrap();
+    let left_val = obj_func_vals[left_idx].get();
+    let right_val = obj_func_vals[right_idx].get();
+    let result = left_val + (loc_target - left_idx_f64) * (right_val - left_val);
+    FiniteF64::new(result).unwrap()
 }
 
 impl AlgoContext {
@@ -98,7 +142,47 @@ impl AlgoContext {
         result
     }
 
-    pub fn create_individual(&mut self) -> IdentifiableIndividual {
+    fn extract_best_ready(&mut self) -> Option<IndContext> {
+        let key = self
+            .individuals
+            .iter()
+            .filter(|entry| matches!(entry.1.state, IndState::Ready(_)))
+            .map(|entry| entry.0)
+            .next();
+
+        if let Some(key) = key {
+            Some(self.individuals.remove(&key.clone()).unwrap())
+        } else {
+            None
+        }
+    }
+
+    fn try_reeval(&mut self) -> bool {
+        self.individual_sample_size > 1
+            && self.individuals.len() >= self.min_pop_size_for_reeval
+            && Bernoulli::new(self.prob_reeval)
+                .unwrap()
+                .sample(&mut self.rng)
+    }
+
+    pub fn next_individual(&mut self) -> IndContext {
+        if self.try_reeval() {
+            if let Some(mut ind_ctx) = self.extract_best_ready() {
+                let state = if let IndState::Ready(obj_func_vals) = ind_ctx.state {
+                    IndState::PendingEval(obj_func_vals)
+                } else {
+                    unreachable!();
+                };
+
+                ind_ctx.state = state;
+                info!(
+                    "Individual {}: selected individual for re-evaluation",
+                    ind_ctx.id
+                );
+                return ind_ctx;
+            }
+        }
+
         let value = if self.initial_value.is_none() {
             self.initial_value = Some(self.spec.initial_value());
             self.initial_value.clone().unwrap()
@@ -106,17 +190,19 @@ impl AlgoContext {
             self.create_offspring()
         };
 
-        let individual_id = self.make_id();
+        let id = self.make_id();
 
-        IdentifiableIndividual::new(individual_id, value)
+        info!("Individual {}: Created", id);
+
+        IndContext::new(id, value)
     }
 
     fn create_offspring(&mut self) -> Value {
-        let crossover_result = if self.individuals_evaled.is_empty() {
+        let individuals_ordered: Vec<&Value> =
+            self.individuals.values().map(|ctx| &ctx.value).collect();
+        let crossover_result = if individuals_ordered.is_empty() {
             self.initial_value.clone().unwrap()
         } else {
-            let individuals_ordered: Vec<&Value> =
-                self.individuals_evaled.iter().map(|ind| ind.1).collect();
             self.crossover.crossover(
                 &self.spec,
                 &individuals_ordered,
@@ -143,48 +229,97 @@ impl AlgoContext {
         result
     }
 
-    pub fn process_individual_eval(&mut self, evaled_individual: EvaluatedIndividual) {
-        if let Some(obj_func_val) = evaled_individual.obj_func_val {
-            let ordering_key = IndividualOrderingKey::new(
-                evaled_individual.identifiable_individual.id,
-                obj_func_val,
-            );
-            let new_best = self
-                .individuals_evaled
-                .keys()
-                .next()
-                .map(|ordering_key| obj_func_val < ordering_key.obj_func_val)
-                .unwrap_or(true);
-
-            if new_best {
-                info!("New best objective function value: {}", obj_func_val);
+    fn summary_obj_func_val(&self, ind_state: &IndState) -> FiniteF64 {
+        match *ind_state {
+            IndState::PendingEval(ref obj_func_vals) | IndState::Ready(ref obj_func_vals) => {
+                summary_obj_func_val(obj_func_vals, self.obj_func_val_quantile)
             }
-
-            self.individuals_evaled.insert(
-                ordering_key,
-                evaled_individual.identifiable_individual.value,
-            );
-
-            while self.individuals_evaled.len() > self.max_population_size {
-                let last_ordering_key: IndividualOrderingKey =
-                    self.individuals_evaled.keys().next_back().unwrap().clone();
-                self.individuals_evaled.remove(&last_ordering_key);
-            }
+            IndState::Final(obj_func_val) => obj_func_val,
         }
     }
 
-    pub fn peek_best_seen_value(&self) -> Option<f64> {
-        self.individuals_evaled
-            .iter()
-            .next()
-            .map(|(ordering_key, _)| ordering_key.obj_func_val.get())
+    fn transition_state(&self, state: IndState, obj_func_val: FiniteF64, id: usize) -> IndState {
+        if let IndState::PendingEval(mut obj_func_vals) = state {
+            obj_func_vals.push(obj_func_val);
+
+            if obj_func_vals.len() == self.individual_sample_size {
+                let summary_obj_func_val =
+                    summary_obj_func_val(&obj_func_vals, self.obj_func_val_quantile);
+
+                info!(
+                    "Individual {}: completed sample, final objective function value: {}",
+                    id, summary_obj_func_val
+                );
+
+                IndState::Final(summary_obj_func_val)
+            } else {
+                IndState::Ready(obj_func_vals)
+            }
+        } else {
+            unreachable!()
+        }
     }
 
-    pub fn best_seen(self) -> Option<(f64, Value)> {
-        self.individuals_evaled
-            .into_iter()
-            .map(|(ordering_key, value)| (ordering_key.obj_func_val.get(), value))
-            .next()
+    fn log_top_obj_func_vals(&self) {
+        let num_to_take = 20.min(self.individuals.len());
+
+        let summary_obj_func_vals: Vec<f64> = self
+            .individuals
+            .values()
+            .take(num_to_take)
+            .map(|ctx| match ctx.state {
+                IndState::PendingEval(ref obj_func_vals) | IndState::Ready(ref obj_func_vals) => {
+                    summary_obj_func_val(obj_func_vals, self.obj_func_val_quantile).get()
+                }
+                IndState::Final(obj_func_val) => obj_func_val.get(),
+            })
+            .collect();
+
+        let mean: f64 = summary_obj_func_vals.iter().sum::<f64>() / num_to_take.to_f64().unwrap();
+
+        info!(
+            "Top {} objective function values with mean {}: {:?}",
+            num_to_take, mean, summary_obj_func_vals
+        );
+    }
+
+    pub fn process_individual_eval(
+        &mut self,
+        mut ind_ctx: IndContext,
+        obj_func_val: Option<FiniteF64>,
+    ) {
+        if let Some(obj_func_val) = obj_func_val {
+            info!(
+                "Individual {}: received objective function value: {}",
+                ind_ctx.id,
+                obj_func_val.get()
+            );
+
+            ind_ctx.state = self.transition_state(ind_ctx.state, obj_func_val, ind_ctx.id);
+
+            let ordering_key =
+                OrderingKey::new(ind_ctx.id, self.summary_obj_func_val(&ind_ctx.state));
+            self.individuals.insert(ordering_key, ind_ctx);
+
+            while self.individuals.len() > self.max_pop_size {
+                let key_to_remove = self.individuals.iter().next_back().unwrap().0.clone();
+                self.individuals.remove(&key_to_remove);
+            }
+
+            self.log_top_obj_func_vals();
+        } else {
+            info!("Individual {}: value rejected", ind_ctx.id);
+        }
+    }
+
+    pub fn best_seen_final(&self) -> Option<(FiniteF64, &Value)> {
+        self.individuals.values().find_map(|ctx| {
+            if let IndState::Final(obj_func_val) = ctx.state {
+                Some((obj_func_val, &ctx.value))
+            } else {
+                None
+            }
+        })
     }
 }
 
@@ -193,6 +328,7 @@ mod tests {
     use super::*;
     use crate::spec;
     use crate::value;
+    use float_cmp::assert_approx_eq;
 
     const NEVER_CROSSOVER: CrossoverParams = CrossoverParams {
         crossover_prob: 0.0,
@@ -207,15 +343,12 @@ mod tests {
     const TRIVIAL_SPEC: Spec = spec::Spec(spec::Node::Bool { init: true });
 
     fn make_sut() -> AlgoContext {
-        AlgoContext::new(TRIVIAL_SPEC, false, 1000, NEVER_CROSSOVER, ALWAYS_MUTATE)
+        AlgoContext::new(TRIVIAL_SPEC, 1, 1.0, NEVER_CROSSOVER, ALWAYS_MUTATE)
     }
 
-    fn make_evaluated_individual(value: bool, obj_func_val: f64) -> EvaluatedIndividual {
-        let value = value::Value(value::Node::Bool(value));
-
-        let identifiable_individual = IdentifiableIndividual::new(0, value);
-        EvaluatedIndividual::new(
-            identifiable_individual,
+    fn make_result(id: usize, value: bool, obj_func_val: f64) -> (IndContext, Option<FiniteF64>) {
+        (
+            IndContext::new(id, Value(value::Node::Bool(value))),
             Some(FiniteF64::new(obj_func_val).unwrap()),
         )
     }
@@ -224,12 +357,12 @@ mod tests {
     fn initial_guess_then_mutation() {
         let mut sut = make_sut();
 
-        assert_eq!(sut.create_individual().value.0, value::Node::Bool(true));
+        assert_eq!(sut.next_individual().value.0, value::Node::Bool(true));
         for _ in 0..2 {
-            assert_eq!(sut.create_individual().value.0, value::Node::Bool(false));
+            assert_eq!(sut.next_individual().value.0, value::Node::Bool(false));
         }
 
-        assert_eq!(sut.best_seen(), None);
+        assert_eq!(sut.best_seen_final(), None);
     }
 
     #[test]
@@ -237,35 +370,212 @@ mod tests {
         let mut sut = make_sut();
 
         for _ in 0..2 {
-            sut.create_individual();
+            sut.next_individual();
         }
 
-        sut.process_individual_eval(make_evaluated_individual(false, 0.1));
+        let (ind_ctx, obj_func_val) = make_result(0, false, 0.1);
+
+        sut.process_individual_eval(ind_ctx, obj_func_val);
 
         for _ in 0..2 {
-            assert_eq!(sut.create_individual().value.0, value::Node::Bool(true));
+            assert_eq!(sut.next_individual().value.0, value::Node::Bool(true));
         }
 
-        assert_eq!(
-            sut.best_seen(),
-            Some((0.1, value::Value(value::Node::Bool(false))))
-        );
+        if let Some((obj_func_val, value)) = sut.best_seen_final() {
+            assert_eq!(obj_func_val.get(), 0.1);
+            assert_eq!(*value, Value(value::Node::Bool(false)));
+        } else {
+            panic!()
+        }
     }
 
     #[test]
     fn best_seen_overtaken() {
         let mut sut = make_sut();
-        sut.create_individual();
-        assert_eq!(sut.peek_best_seen_value(), None);
-        sut.process_individual_eval(make_evaluated_individual(true, 0.2));
-        assert_eq!(sut.peek_best_seen_value(), Some(0.2));
-        assert_eq!(sut.create_individual().value.0, value::Node::Bool(false));
-        sut.process_individual_eval(make_evaluated_individual(false, 0.1));
-        assert_eq!(sut.create_individual().value.0, value::Node::Bool(true));
-        assert_eq!(sut.peek_best_seen_value(), Some(0.1));
+        sut.next_individual();
+        assert_eq!(sut.best_seen_final(), None);
+
+        let (ind_ctx, obj_func_val) = make_result(0, true, 0.2);
+        sut.process_individual_eval(ind_ctx, obj_func_val);
+
         assert_eq!(
-            sut.best_seen(),
-            Some((0.1, value::Value(value::Node::Bool(false))))
+            sut.best_seen_final()
+                .map(|(obj_func_val, _)| obj_func_val.get()),
+            Some(0.2)
         );
+        assert_eq!(sut.next_individual().value.0, value::Node::Bool(false));
+
+        let (ind_ctx, obj_func_val) = make_result(1, false, 0.1);
+        sut.process_individual_eval(ind_ctx, obj_func_val);
+
+        assert_eq!(sut.next_individual().value.0, value::Node::Bool(true));
+
+        let (obj_func_val, value) = sut.best_seen_final().unwrap();
+        assert_eq!(obj_func_val.get(), 0.1);
+
+        assert_eq!(*value, value::Value(value::Node::Bool(false)));
+    }
+
+    #[test]
+    fn max_population_size() {
+        let max_pop_size = 1;
+        let mut sut = AlgoContext::new_impl(
+            TRIVIAL_SPEC,
+            1,
+            1.0,
+            NEVER_CROSSOVER,
+            ALWAYS_MUTATE,
+            0.0,
+            0,
+            max_pop_size,
+        );
+
+        sut.next_individual();
+
+        let (ind_ctx, obj_func_val) = make_result(0, true, 0.3);
+        sut.process_individual_eval(ind_ctx, obj_func_val);
+        assert_eq!(sut.individuals.len(), 1);
+
+        let (ind_ctx, obj_func_val) = make_result(1, true, 0.2);
+        sut.process_individual_eval(ind_ctx, obj_func_val);
+        assert_eq!(sut.individuals.len(), 1);
+        assert_eq!(sut.individuals.values().next().unwrap().id, 1); // the individual 0 was evicted
+    }
+
+    #[test]
+    fn reeval() {
+        let min_pop_size_for_reeval = 2;
+        let prob_reeval = 1.0;
+        let sample_size = 2;
+        let mut sut = AlgoContext::new_impl(
+            TRIVIAL_SPEC,
+            sample_size,
+            1.0,
+            NEVER_CROSSOVER,
+            ALWAYS_MUTATE,
+            prob_reeval,
+            min_pop_size_for_reeval,
+            MAX_POP_SIZE,
+        );
+
+        sut.next_individual();
+
+        let (ind_ctx, obj_func_val) = make_result(0, true, 0.2);
+        sut.process_individual_eval(ind_ctx, obj_func_val);
+        let top_individual = sut.individuals.values().next().unwrap();
+        assert_eq!(
+            *top_individual,
+            IndContext {
+                id: 0,
+                value: Value(value::Node::Bool(true)),
+                state: IndState::Ready(vec![FiniteF64::new(0.2).unwrap()])
+            }
+        );
+
+        // mutated offspring created
+        let next_individual = sut.next_individual();
+        assert_eq!(next_individual.value.0, value::Node::Bool(false));
+
+        sut.process_individual_eval(next_individual, Some(FiniteF64::new(0.3).unwrap()));
+        assert_eq!(sut.individuals.len(), 2);
+
+        // picking the first individual for reevaluation
+        let next_individual = sut.next_individual();
+        assert_eq!(sut.individuals.len(), 1);
+        assert_eq!(
+            next_individual,
+            IndContext {
+                id: 0,
+                value: Value(value::Node::Bool(true)),
+                state: IndState::PendingEval(vec![FiniteF64::new(0.2).unwrap()])
+            }
+        );
+
+        // reevaluation result
+        sut.process_individual_eval(next_individual, Some(FiniteF64::new(0.1).unwrap()));
+
+        // context state transitioned to final after two evaluations
+        let top_individual = sut.individuals.values().next().unwrap();
+        assert_eq!(
+            *top_individual,
+            IndContext {
+                id: 0,
+                value: Value(value::Node::Bool(true)),
+                state: IndState::Final(FiniteF64::new(0.1).unwrap())
+            }
+        );
+        assert_eq!(sut.individuals.len(), 2);
+
+        // picking the second individual for reevaluation
+        let ind_1_for_reeval = sut.next_individual();
+        assert_eq!(sut.individuals.len(), 1);
+        assert_eq!(
+            ind_1_for_reeval,
+            IndContext {
+                id: 1,
+                value: Value(value::Node::Bool(false)),
+                state: IndState::PendingEval(vec![FiniteF64::new(0.3).unwrap()])
+            }
+        );
+
+        // mutated offspring created based on first individual
+        let next_individual = sut.next_individual();
+        assert_eq!(sut.individuals.len(), 1);
+        assert_eq!(
+            next_individual,
+            IndContext {
+                id: 2,
+                value: Value(value::Node::Bool(false)),
+                state: IndState::PendingEval(vec![])
+            }
+        );
+
+        // comes back first, better than second, but worse than first
+        sut.process_individual_eval(next_individual, Some(FiniteF64::new(0.25).unwrap()));
+        assert_eq!(sut.individuals.len(), 2);
+
+        // second individual comes back after final evaluation, ranks worst
+        sut.process_individual_eval(ind_1_for_reeval, Some(FiniteF64::new(0.4).unwrap()));
+        assert_eq!(sut.individuals.len(), 3);
+
+        let ind_ids_in_ranking_order: Vec<usize> =
+            sut.individuals.values().map(|ctx| ctx.id).collect();
+        assert_eq!(ind_ids_in_ranking_order, vec![0, 2, 1]);
+    }
+
+    #[test]
+    fn quantile_single_value() {
+        let values = vec![FiniteF64::new(1.0).unwrap()];
+        assert_eq!(summary_obj_func_val(&values, 0.0).get(), 1.0);
+        assert_eq!(summary_obj_func_val(&values, 0.5).get(), 1.0);
+        assert_eq!(summary_obj_func_val(&values, 1.0).get(), 1.0);
+    }
+
+    #[test]
+    fn quantile_uneven_length() {
+        let values = vec![0.1, 1.1, 2.1, 3.1, 4.1];
+        let values: Vec<FiniteF64> = values
+            .into_iter()
+            .map(|val| FiniteF64::new(val).unwrap())
+            .collect();
+
+        assert_approx_eq!(f64, summary_obj_func_val(&values, 0.0).get(), 0.1);
+        assert_approx_eq!(f64, summary_obj_func_val(&values, 0.25).get(), 1.1);
+        assert_approx_eq!(f64, summary_obj_func_val(&values, 0.375).get(), 1.6);
+        assert_approx_eq!(f64, summary_obj_func_val(&values, 0.5).get(), 2.1);
+        assert_approx_eq!(f64, summary_obj_func_val(&values, 1.0).get(), 4.1);
+    }
+
+    #[test]
+    fn quantile_even_length() {
+        let values = vec![0.1, 1.1, 2.1, 3.1];
+        let values: Vec<FiniteF64> = values
+            .into_iter()
+            .map(|val| FiniteF64::new(val).unwrap())
+            .collect();
+
+        assert_approx_eq!(f64, summary_obj_func_val(&values, 0.0).get(), 0.1);
+        assert_approx_eq!(f64, summary_obj_func_val(&values, 0.5).get(), 1.6);
+        assert_approx_eq!(f64, summary_obj_func_val(&values, 1.0).get(), 3.1);
     }
 }

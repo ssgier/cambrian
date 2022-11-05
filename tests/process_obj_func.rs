@@ -37,7 +37,8 @@ fn run(
     let algo_config = AlgoConfigBuilder::new()
         .init_crossover_params(init_crossover_params)
         .init_mutation_params(init_mutation_params)
-        .build();
+        .build()
+        .unwrap();
 
     let termination_criteria = vec![TerminationCriterion::TerminateAfter(terminate_after)];
     sync_launch::launch_with_async_obj_func(

@@ -44,6 +44,12 @@ struct Args {
     #[arg(short = 'k', long)]
     kill_obj_func_after: Option<String>,
 
+    #[arg(long)]
+    sample_size: Option<usize>,
+
+    #[arg(long)]
+    quantile: Option<f64>,
+
     obj_func_program: OsString,
     obj_func_program_args: Vec<OsString>,
 }
@@ -58,7 +64,7 @@ fn init_logger(args: &Args) {
     env_logger::Builder::new()
         .filter_level(level_filter)
         .format_timestamp(None)
-        .format_level(true)
+        .format_level(false)
         .format_module_path(false)
         .format_target(false)
         .init();
@@ -76,14 +82,22 @@ fn load_spec(args: &Args) -> Result<Spec> {
     Ok(spec)
 }
 
-fn make_algo_conf(args: &Args) -> AlgoConfig {
+fn make_algo_conf(args: &Args) -> Result<AlgoConfig> {
     let mut algo_config_builder = AlgoConfigBuilder::new();
 
     if let Some(num_parallel) = args.num_parallel {
         algo_config_builder.num_concurrent(num_parallel);
     }
 
-    algo_config_builder.build()
+    if let Some(sample_size) = args.sample_size {
+        algo_config_builder.individual_sample_size(sample_size);
+    }
+
+    if let Some(quantile) = args.quantile {
+        algo_config_builder.obj_func_val_quantile(quantile);
+    }
+
+    algo_config_builder.build().context("invalid input")
 }
 
 fn assemble_termination_criteria(args: &Args) -> Result<Vec<TerminationCriterion>> {
@@ -235,13 +249,14 @@ fn main() -> Result<()> {
 
     init_logger(&args);
 
+    let algo_config = make_algo_conf(&args)?;
+    let termination_criteria = assemble_termination_criteria(&args)?;
+
     if let Some(out_dir) = &args.out_dir {
         handle_existing_out_dir(out_dir, args.force)?;
     }
 
     let spec = load_spec(&args)?;
-    let algo_config = make_algo_conf(&args);
-    let termination_criteria = assemble_termination_criteria(&args)?;
     let obj_func_def = make_obj_func_def(
         args.obj_func_program,
         args.obj_func_program_args,

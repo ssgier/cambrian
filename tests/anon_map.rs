@@ -48,7 +48,7 @@ fn anon_map() {
     let algo_config = AlgoConfigBuilder::new()
         .init_crossover_params(init_crossover_params)
         .init_mutation_params(init_mutation_params)
-        .build();
+        .build().unwrap();
 
     let termination_criteria = vec![TerminationCriterion::NumObjFuncEval(100)];
     let result =
