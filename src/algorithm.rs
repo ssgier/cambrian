@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use tangram_finite::FiniteF64;
 
 const META_PARAMS_PROB_EXPLORATORY: f64 = 0.25;
-const META_PARAMS_SELECT_PRESSURE: f64 = 0.2;
+const META_PARAMS_SELECT_PRESSURE: f64 = 0.9;
 const META_PARAMS_PROB_MUTATION: f64 = 0.5;
 
 const PROB_REEVAL: f64 = 0.5;
