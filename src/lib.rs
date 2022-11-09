@@ -3,6 +3,7 @@ pub mod async_launch;
 pub(crate) mod common_util;
 pub(crate) mod controller;
 pub mod crossover;
+pub(crate) mod detailed_report;
 pub mod error;
 pub mod message;
 pub mod meta;

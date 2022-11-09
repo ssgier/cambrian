@@ -2,6 +2,37 @@ use async_trait::async_trait;
 
 use crate::error::Error;
 use async_channel::Receiver;
+use enum_display_derive::Display;
+use std::fmt::Display;
+
+#[derive(Clone, Debug)]
+pub struct MetaParamsWrapper {
+    pub source: MetaParamsSource,
+    pub crossover_params: CrossoverParams,
+    pub mutation_params: MutationParams,
+}
+
+impl MetaParamsWrapper {
+    pub fn new(
+        source: MetaParamsSource,
+        crossover_params: CrossoverParams,
+        mutation_params: MutationParams,
+    ) -> Self {
+        Self {
+            source,
+            crossover_params,
+            mutation_params,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Display)]
+pub enum MetaParamsSource {
+    Exploratory,
+    Selected,
+    SelectedAndMutated,
+    Override,
+}
 
 #[derive(Debug, Clone)]
 pub struct CrossoverParams {

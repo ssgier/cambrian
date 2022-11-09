@@ -1,4 +1,6 @@
 pub(crate) use crate::crossover::Crossover;
+use crate::meta::MetaParamsSource;
+use crate::meta::MetaParamsWrapper;
 use crate::meta_adapt;
 use crate::mutation;
 use crate::selection::{Selection, SelectionImpl};
@@ -123,18 +125,14 @@ enum IndState {
 
 #[derive(Debug)]
 pub struct IndContext {
-    id: usize,
+    pub id: usize,
     pub value: Value,
-    meta_params_used: Option<(CrossoverParams, MutationParams)>,
+    pub meta_params_used: Option<MetaParamsWrapper>,
     state: IndState,
 }
 
 impl IndContext {
-    fn new(
-        id: usize,
-        value: Value,
-        meta_params_used: Option<(CrossoverParams, MutationParams)>,
-    ) -> Self {
+    fn new(id: usize, value: Value, meta_params_used: Option<MetaParamsWrapper>) -> Self {
         Self {
             id,
             value,
@@ -208,9 +206,9 @@ impl AlgoContext {
             self.initial_value = Some(self.spec.initial_value());
             (self.initial_value.clone().unwrap(), None)
         } else {
-            let (value, crossover_params_used, mutation_params_used) = self.create_offspring();
+            let (value, meta_params_wrapper) = self.create_offspring();
 
-            (value, Some((crossover_params_used, mutation_params_used)))
+            (value, Some(meta_params_wrapper))
         };
 
         let id = self.make_id();
@@ -220,8 +218,8 @@ impl AlgoContext {
         IndContext::new(id, value, meta_params_used)
     }
 
-    fn create_offspring(&mut self) -> (Value, CrossoverParams, MutationParams) {
-        let (crossover_params, mutation_params) = self.next_meta_params();
+    fn create_offspring(&mut self) -> (Value, MetaParamsWrapper) {
+        let meta_params_wrapper = self.next_meta_params();
 
         let individuals_ordered: Vec<&Value> =
             self.individuals.values().map(|ctx| &ctx.value).collect();
@@ -231,7 +229,7 @@ impl AlgoContext {
             self.crossover.crossover(
                 &self.spec,
                 &individuals_ordered,
-                &crossover_params,
+                &meta_params_wrapper.crossover_params,
                 &mut self.path_ctx,
                 &mut self.rng,
             )
@@ -240,7 +238,7 @@ impl AlgoContext {
         let result = mutation::mutate(
             &self.spec,
             &crossover_result,
-            &mutation_params,
+            &meta_params_wrapper.mutation_params,
             &mut self.path_ctx,
             &mut self.rng,
         );
@@ -251,19 +249,22 @@ impl AlgoContext {
             result.to_json()
         );
 
-        (result, crossover_params, mutation_params)
+        (result, meta_params_wrapper)
     }
 
-    fn next_meta_params(&mut self) -> (CrossoverParams, MutationParams) {
+    fn next_meta_params(&mut self) -> MetaParamsWrapper {
         if let Some(meta_params_override) = &self.meta_params_override {
-            return meta_params_override.clone();
+            return wrap(meta_params_override.clone(), MetaParamsSource::Override);
         }
 
         if Bernoulli::new(self.meta_params_prob_exploratory)
             .unwrap()
             .sample(&mut self.rng)
         {
-            meta_adapt::create_exploratory(&mut self.rng)
+            wrap(
+                meta_adapt::create_exploratory(&mut self.rng),
+                MetaParamsSource::Exploratory,
+            )
         } else {
             let meta_params_ordered = self
                 .individuals
@@ -272,7 +273,10 @@ impl AlgoContext {
                 .collect_vec();
 
             if meta_params_ordered.is_empty() {
-                meta_adapt::create_exploratory(&mut self.rng)
+                wrap(
+                    meta_adapt::create_exploratory(&mut self.rng),
+                    MetaParamsSource::Exploratory,
+                )
             } else {
                 let selected = SelectionImpl::new()
                     .select_ref(
@@ -286,9 +290,19 @@ impl AlgoContext {
                     .unwrap()
                     .sample(&mut self.rng)
                 {
-                    meta_adapt::mutate(selected.0, selected.1, &mut self.rng)
+                    wrap(
+                        meta_adapt::mutate(
+                            selected.crossover_params,
+                            selected.mutation_params,
+                            &mut self.rng,
+                        ),
+                        MetaParamsSource::SelectedAndMutated,
+                    )
                 } else {
-                    selected
+                    wrap(
+                        (selected.crossover_params, selected.mutation_params),
+                        MetaParamsSource::Selected,
+                    )
                 }
             }
         }
@@ -392,6 +406,19 @@ impl AlgoContext {
     }
 }
 
+fn wrap(
+    unwrapped: (CrossoverParams, MutationParams),
+    source: MetaParamsSource,
+) -> MetaParamsWrapper {
+    let (crossover_params, mutation_params) = unwrapped;
+
+    MetaParamsWrapper {
+        source,
+        crossover_params,
+        mutation_params,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -420,7 +447,11 @@ mod tests {
             IndContext::new(
                 id,
                 Value(value::Node::Bool(value)),
-                Some((NEVER_CROSSOVER, ALWAYS_MUTATE)),
+                Some(MetaParamsWrapper::new(
+                    MetaParamsSource::Override,
+                    NEVER_CROSSOVER,
+                    ALWAYS_MUTATE,
+                )),
             ),
             Some(FiniteF64::new(obj_func_val).unwrap()),
         )

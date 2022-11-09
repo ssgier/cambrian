@@ -263,12 +263,18 @@ fn main() -> Result<()> {
         args.kill_obj_func_after,
     )?;
 
+    let detailed_report_path = args
+        .out_dir
+        .as_ref()
+        .map(|dir| dir.join("detailed_report.csv"));
+
     let result = sync_launch::launch_with_async_obj_func(
         spec,
         obj_func_def,
         algo_config,
         termination_criteria,
         false,
+        detailed_report_path.as_ref(),
     );
 
     let diagnostic_file_dump_info = diagnostic_file_dump_info(&args.out_dir, &result);

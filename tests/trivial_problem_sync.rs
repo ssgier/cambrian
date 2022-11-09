@@ -40,8 +40,15 @@ fn trivial_problem_sync() {
         TerminationCriterion::TerminateAfter(Duration::from_secs(1)),
     ];
 
-    let result =
-        sync_launch::launch(spec, obj_func, algo_config, termination_criteria, true).unwrap();
+    let result = sync_launch::launch(
+        spec,
+        obj_func,
+        algo_config,
+        termination_criteria,
+        true,
+        None,
+    )
+    .unwrap();
 
     let value = TestValue::deserialize(result.best_seen.value).unwrap();
     let obj_func_val = result.best_seen.obj_func_val;

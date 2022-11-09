@@ -32,6 +32,7 @@ fn run(
         algo_config,
         termination_criteria,
         false,
+        None,
     )
 }
 

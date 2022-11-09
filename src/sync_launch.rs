@@ -1,4 +1,5 @@
 use crate::async_launch;
+use crate::detailed_report::DetailedReportItem;
 use crate::error::Error;
 use crate::message::Command;
 use crate::meta::AlgoConfig;
@@ -11,15 +12,21 @@ use async_channel;
 use async_trait::async_trait;
 use ctrlc;
 use futures::channel::mpsc;
+use futures::channel::mpsc::UnboundedReceiver;
 use futures::executor;
+use futures::future;
 use futures::pin_mut;
 use futures::select;
 use futures::sink::SinkExt;
 use futures::FutureExt;
+use futures::StreamExt;
 use futures_timer::Delay;
 use log::info;
 use std::panic;
+use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use tokio::runtime;
 
 pub fn launch<F, T>(
@@ -28,6 +35,7 @@ pub fn launch<F, T>(
     algo_config: AlgoConfig,
     termination_criteria: T,
     in_process_computation: bool,
+    detailed_report_path: Option<&PathBuf>,
 ) -> Result<FinalReport, Error>
 where
     F: ObjectiveFunction,
@@ -39,7 +47,40 @@ where
         algo_config,
         termination_criteria,
         in_process_computation,
+        detailed_report_path,
     )
+}
+
+async fn stream_detailed_report_items_to_file(
+    file_path: Option<&PathBuf>,
+    mut item_receiver: UnboundedReceiver<DetailedReportItem>,
+) -> Result<(), Error> {
+    if let Some(file_path) = file_path {
+        let mut detailed_report_file = File::create(file_path).await.map_err(|err| {
+            Error::UnableToCreateDetailedReportFile {
+                path: file_path.to_owned(),
+                source: err,
+            }
+        })?;
+
+        detailed_report_file
+            .write_all(DetailedReportItem::get_csv_header_row().as_bytes())
+            .await?;
+
+        while let Some(item) = item_receiver.next().await {
+            detailed_report_file
+                .write_all(item.to_csv_row().as_bytes())
+                .await?;
+        }
+    } else {
+        item_receiver
+            .map(Ok)
+            .forward(futures::sink::drain())
+            .await
+            .unwrap();
+    }
+
+    Ok(())
 }
 
 pub fn launch_with_async_obj_func<F, T>(
@@ -48,6 +89,7 @@ pub fn launch_with_async_obj_func<F, T>(
     algo_config: AlgoConfig,
     termination_criteria: T,
     in_process_computation: bool,
+    detailed_report_path: Option<&PathBuf>,
 ) -> Result<FinalReport, Error>
 where
     F: AsyncObjectiveFunction,
@@ -64,15 +106,20 @@ where
     let termination_criteria = termination::compile(termination_criteria)?;
 
     let (mut cmd_sender, cmd_recv) = mpsc::unbounded::<Command>();
+    let (detailed_report_sender, detailed_report_recv) = mpsc::unbounded::<DetailedReportItem>();
 
     let launch_fut = async_launch::launch(
         spec,
         obj_func,
         algo_config,
         cmd_recv,
+        detailed_report_sender,
         termination_criteria.max_num_obj_func_eval,
         termination_criteria.target_obj_func_val,
     );
+
+    let detailed_reporting_fut =
+        stream_detailed_report_items_to_file(detailed_report_path, detailed_report_recv);
 
     if termination_criteria.terminate_on_signal {
         let mut sender_for_handler = cmd_sender.clone();
@@ -88,11 +135,11 @@ where
         .unwrap()
         .block_on(async {
             match termination_criteria.terminate_after {
-                None => launch_fut.await,
+                None => futures::join!(launch_fut, detailed_reporting_fut).0,
                 Some(terminate_after) => {
                     let timeout_fut = Delay::new(terminate_after).fuse();
-                    let launch_fut = launch_fut.fuse();
-                    pin_mut!(timeout_fut, launch_fut);
+                    let work_fut = future::join(launch_fut, detailed_reporting_fut).fuse();
+                    pin_mut!(timeout_fut, work_fut);
 
                     loop {
                         select! {
@@ -100,8 +147,9 @@ where
                                 info!("Abort time reached");
                                 cmd_sender.send(Command::Terminate).await.ok();
                             }
-                            report = launch_fut => {
-                                return report;
+                            result = &mut work_fut => {
+                                let final_report = result.0;
+                                return final_report;
                             }
                         }
                     }

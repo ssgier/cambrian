@@ -1,6 +1,7 @@
 use nix::unistd::Pid;
 use std::ffi::OsString;
 use std::io;
+use std::path::PathBuf;
 use std::process::Output;
 use thiserror;
 
@@ -128,6 +129,11 @@ pub enum Error {
     ZeroSampleSize,
     #[error("number of concurrent objective function evaluations must be strictly positive")]
     ZeroNumConcurrent,
+    #[error("Unable to create detailed report file at path: {}, cause: {source:?}", .path.display())]
+    UnableToCreateDetailedReportFile {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }
 
 #[derive(Debug)]

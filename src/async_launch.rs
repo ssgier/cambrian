@@ -1,10 +1,11 @@
 use crate::controller::start_controller;
+use crate::detailed_report::DetailedReportItem;
 use crate::error::Error;
 use crate::message::Command;
 use crate::meta::{AlgoConfig, AsyncObjectiveFunction};
 use crate::result::FinalReport;
 use crate::spec::Spec;
-use futures::channel::mpsc::UnboundedReceiver;
+use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
 use futures::StreamExt;
 
@@ -13,6 +14,7 @@ pub async fn launch<F: AsyncObjectiveFunction>(
     obj_func: F,
     algo_config: AlgoConfig,
     mut cmd_recv: UnboundedReceiver<Command>,
+    detailed_report_sender: UnboundedSender<DetailedReportItem>,
     max_num_eval: Option<usize>,
     target_obj_func_val: Option<f64>,
 ) -> Result<FinalReport, Error> {
@@ -25,6 +27,7 @@ pub async fn launch<F: AsyncObjectiveFunction>(
         spec,
         obj_func,
         abort_signal_recv,
+        detailed_report_sender,
         max_num_eval,
         target_obj_func_val,
     );

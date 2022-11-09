@@ -1,16 +1,18 @@
 use crate::algorithm::AlgoContext;
 use crate::algorithm::IndContext;
+use crate::detailed_report::DetailedReportItem;
 use crate::error::Error;
 use crate::spec::Spec;
 use crate::{
     meta::{AlgoConfig, AsyncObjectiveFunction},
     result::FinalReport,
 };
+use futures::channel::mpsc::UnboundedSender;
 use futures::channel::oneshot;
 use futures::stream::FuturesUnordered;
 use futures::TryStreamExt;
 use log::info;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tangram_finite::FiniteF64;
 
 pub async fn start_controller<F: AsyncObjectiveFunction>(
@@ -18,6 +20,7 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
     spec: Spec,
     obj_func: F,
     mut in_abort_signal_recv: oneshot::Receiver<()>,
+    detailed_report_sender: UnboundedSender<DetailedReportItem>,
     max_num_eval: Option<usize>,
     target_obj_func_val: Option<f64>,
 ) -> Result<FinalReport, Error> {
@@ -62,12 +65,23 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
                 match evaled_individual? {
                     None => break,
                     Some(evaled_individual) => {
-                        if evaled_individual.0.is_some() {
+
+                        let detailed_report_item = DetailedReportItem {
+                            individual_id: evaled_individual.ind_ctx.id,
+                            eval_time: evaled_individual.eval_time,
+                            meta_params_used: evaled_individual.ind_ctx.meta_params_used.clone(),
+                            input_val: evaled_individual.ind_ctx.value.clone(),
+                            obj_func_val: evaled_individual.obj_func_val.map(FiniteF64::get),
+                        };
+
+                        detailed_report_sender.unbounded_send(detailed_report_item).unwrap();
+
+                        if evaled_individual.obj_func_val.is_some() {
                             count_accepted += 1;
                         } else {
                             count_rejected += 1;
                         }
-                        algo_ctx.process_individual_eval(evaled_individual.1, evaled_individual.0);
+                        algo_ctx.process_individual_eval(evaled_individual.ind_ctx, evaled_individual.obj_func_val);
 
 
                         if let (Some(target_obj_func_val), Some(best_seen_final)) =
@@ -115,21 +129,33 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
     }
 }
 
-struct EvaluatedIndividual(Option<FiniteF64>, IndContext);
+struct EvaluatedIndividual {
+    obj_func_val: Option<FiniteF64>,
+    ind_ctx: IndContext,
+    eval_time: Duration,
+}
 
 async fn evaluate_individual<F: AsyncObjectiveFunction>(
     individual: IndContext,
     obj_func: &F,
     abort_signal_recv: async_channel::Receiver<()>,
 ) -> Result<EvaluatedIndividual, Error> {
+    let start_time = Instant::now();
+
     let eval_result = obj_func
         .evaluate(individual.value.to_json(), abort_signal_recv.clone())
         .await?;
+
+    let eval_time = start_time.elapsed();
 
     let finitified_result = eval_result
         .map(FiniteF64::new)
         .transpose()
         .map_err(|_| Error::ObjFuncValMustBeFinite)?;
 
-    Ok(EvaluatedIndividual(finitified_result, individual))
+    Ok(EvaluatedIndividual {
+        obj_func_val: finitified_result,
+        ind_ctx: individual,
+        eval_time,
+    })
 }
