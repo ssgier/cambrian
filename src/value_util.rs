@@ -8,8 +8,11 @@ use std::collections::HashMap;
 
 pub fn from_json_str(json_str: &str, spec: &spec::Spec) -> Result<Value, Error> {
     let json_val: serde_json::Value = serde_json::from_str(json_str)?;
+    from_json_value(&json_val, spec)
+}
 
-    Ok(Value(build_node(&json_val, &spec.0, &[])?))
+pub fn from_json_value(json_val: &serde_json::Value, spec: &spec::Spec) -> Result<Value, Error> {
+    Ok(Value(build_node(json_val, &spec.0, &[])?))
 }
 
 fn build_node(

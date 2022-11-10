@@ -19,13 +19,23 @@ use rand_distr::{Bernoulli, Distribution};
 use std::collections::BTreeMap;
 use tangram_finite::FiniteF64;
 
-const META_PARAMS_PROB_EXPLORATORY: f64 = 0.25;
-const META_PARAMS_SELECT_PRESSURE: f64 = 0.9;
-const META_PARAMS_PROB_MUTATION: f64 = 0.5;
+const STATIC_PARAMS: StaticParams = StaticParams {
+    meta_params_prob_exploratory: 0.25,
+    meta_params_select_pressure: 0.9,
+    meta_params_prob_mutation: 0.5,
+    prob_reeval: 0.5,
+    min_pop_size_for_reeval: 20,
+    max_pop_size: 1000,
+};
 
-const PROB_REEVAL: f64 = 0.5;
-const MIN_POP_SIZE_FOR_REEVAL: usize = 20;
-const MAX_POP_SIZE: usize = 1000;
+struct StaticParams {
+    meta_params_prob_exploratory: f64,
+    meta_params_select_pressure: f64,
+    meta_params_prob_mutation: f64,
+    prob_reeval: f64,
+    min_pop_size_for_reeval: usize,
+    max_pop_size: usize,
+}
 
 pub struct AlgoContext {
     spec: Spec,
@@ -33,20 +43,14 @@ pub struct AlgoContext {
     obj_func_val_quantile: f64,
 
     individuals: BTreeMap<OrderingKey, IndContext>,
-    initial_value: Option<Value>,
+    initial_value: Value,
+    initial_value_used: bool,
     crossover: Crossover,
     path_ctx: PathContext,
     rng: StdRng,
     next_id: usize,
-
-    prob_reeval: f64,
-    min_pop_size_for_reeval: usize,
-    max_pop_size: usize,
-    meta_params_prob_exploratory: f64,
-    meta_params_select_pressure: f64,
-    meta_params_prob_mutation: f64,
-
     meta_params_override: Option<(CrossoverParams, MutationParams)>,
+    static_params: StaticParams,
 }
 
 impl AlgoContext {
@@ -55,50 +59,38 @@ impl AlgoContext {
         individual_sample_size: usize,
         obj_func_val_quantile: f64,
         meta_params_override: Option<(CrossoverParams, MutationParams)>,
+        explicit_init_value: Option<Value>,
     ) -> Self {
         Self::new_impl(
             spec,
             individual_sample_size,
             obj_func_val_quantile,
-            PROB_REEVAL,
-            MIN_POP_SIZE_FOR_REEVAL,
-            MAX_POP_SIZE,
-            META_PARAMS_PROB_EXPLORATORY,
-            META_PARAMS_SELECT_PRESSURE,
-            META_PARAMS_PROB_MUTATION,
             meta_params_override,
+            explicit_init_value,
+            STATIC_PARAMS,
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn new_impl(
         spec: Spec,
         individual_sample_size: usize,
         obj_func_val_quantile: f64,
-        prob_reeval: f64,
-        min_pop_size_for_reeval: usize,
-        max_pop_size: usize,
-        meta_params_prob_exploratory: f64,
-        meta_params_select_pressure: f64,
-        meta_params_prob_mutation: f64,
         meta_params_override: Option<(CrossoverParams, MutationParams)>,
+        explicit_init_value: Option<Value>,
+        static_params: StaticParams,
     ) -> Self {
         Self {
+            initial_value: explicit_init_value.unwrap_or_else(|| spec.initial_value()),
             spec,
             individual_sample_size,
             obj_func_val_quantile,
             individuals: BTreeMap::default(),
-            initial_value: None,
+            initial_value_used: false,
             crossover: Crossover::new(),
             path_ctx: PathContext::default(),
             rng: StdRng::seed_from_u64(0),
             next_id: 0,
-            prob_reeval,
-            min_pop_size_for_reeval,
-            max_pop_size,
-            meta_params_prob_exploratory,
-            meta_params_select_pressure,
-            meta_params_prob_mutation,
+            static_params,
             meta_params_override,
         }
     }
@@ -178,8 +170,8 @@ impl AlgoContext {
 
     fn try_reeval(&mut self) -> bool {
         self.individual_sample_size > 1
-            && self.individuals.len() >= self.min_pop_size_for_reeval
-            && Bernoulli::new(self.prob_reeval)
+            && self.individuals.len() >= self.static_params.min_pop_size_for_reeval
+            && Bernoulli::new(self.static_params.prob_reeval)
                 .unwrap()
                 .sample(&mut self.rng)
     }
@@ -202,9 +194,9 @@ impl AlgoContext {
             }
         }
 
-        let (value, meta_params_used) = if self.initial_value.is_none() {
-            self.initial_value = Some(self.spec.initial_value());
-            (self.initial_value.clone().unwrap(), None)
+        let (value, meta_params_used) = if !self.initial_value_used {
+            self.initial_value_used = true;
+            (self.initial_value.clone(), None)
         } else {
             let (value, meta_params_wrapper) = self.create_offspring();
 
@@ -224,7 +216,7 @@ impl AlgoContext {
         let individuals_ordered: Vec<&Value> =
             self.individuals.values().map(|ctx| &ctx.value).collect();
         let crossover_result = if individuals_ordered.is_empty() {
-            self.initial_value.clone().unwrap()
+            self.initial_value.clone()
         } else {
             self.crossover.crossover(
                 &self.spec,
@@ -257,7 +249,7 @@ impl AlgoContext {
             return wrap(meta_params_override.clone(), MetaParamsSource::Override);
         }
 
-        if Bernoulli::new(self.meta_params_prob_exploratory)
+        if Bernoulli::new(self.static_params.meta_params_prob_exploratory)
             .unwrap()
             .sample(&mut self.rng)
         {
@@ -281,12 +273,12 @@ impl AlgoContext {
                 let selected = SelectionImpl::new()
                     .select_ref(
                         &meta_params_ordered,
-                        self.meta_params_select_pressure,
+                        self.static_params.meta_params_select_pressure,
                         &mut self.rng,
                     )
                     .clone();
 
-                if Bernoulli::new(self.meta_params_prob_mutation)
+                if Bernoulli::new(self.static_params.meta_params_prob_mutation)
                     .unwrap()
                     .sample(&mut self.rng)
                 {
@@ -384,7 +376,7 @@ impl AlgoContext {
                 OrderingKey::new(ind_ctx.id, self.summary_obj_func_val(&ind_ctx.state));
             self.individuals.insert(ordering_key, ind_ctx);
 
-            while self.individuals.len() > self.max_pop_size {
+            while self.individuals.len() > self.static_params.max_pop_size {
                 let key_to_remove = self.individuals.iter().next_back().unwrap().0.clone();
                 self.individuals.remove(&key_to_remove);
             }
@@ -439,7 +431,13 @@ mod tests {
     const TRIVIAL_SPEC: Spec = spec::Spec(spec::Node::Bool { init: true });
 
     fn make_sut() -> AlgoContext {
-        AlgoContext::new(TRIVIAL_SPEC, 1, 1.0, Some((NEVER_CROSSOVER, ALWAYS_MUTATE)))
+        AlgoContext::new(
+            TRIVIAL_SPEC,
+            1,
+            1.0,
+            Some((NEVER_CROSSOVER, ALWAYS_MUTATE)),
+            None,
+        )
     }
 
     fn make_result(id: usize, value: bool, obj_func_val: f64) -> (IndContext, Option<FiniteF64>) {
@@ -522,18 +520,18 @@ mod tests {
 
     #[test]
     fn max_population_size() {
-        let max_pop_size = 1;
+        let static_params = StaticParams {
+            max_pop_size: 1,
+            ..STATIC_PARAMS
+        };
+
         let mut sut = AlgoContext::new_impl(
             TRIVIAL_SPEC,
             1,
             1.0,
-            0.0,
-            0,
-            max_pop_size,
-            META_PARAMS_PROB_EXPLORATORY,
-            META_PARAMS_SELECT_PRESSURE,
-            META_PARAMS_PROB_MUTATION,
             Some((NEVER_CROSSOVER, ALWAYS_MUTATE)),
+            None,
+            static_params,
         );
 
         sut.next_individual();
@@ -550,20 +548,21 @@ mod tests {
 
     #[test]
     fn reeval() {
-        let min_pop_size_for_reeval = 2;
-        let prob_reeval = 1.0;
         let sample_size = 2;
+
+        let static_params = StaticParams {
+            min_pop_size_for_reeval: 2,
+            prob_reeval: 1.0,
+            ..STATIC_PARAMS
+        };
+
         let mut sut = AlgoContext::new_impl(
             TRIVIAL_SPEC,
             sample_size,
             1.0,
-            prob_reeval,
-            min_pop_size_for_reeval,
-            MAX_POP_SIZE,
-            META_PARAMS_PROB_EXPLORATORY,
-            META_PARAMS_SELECT_PRESSURE,
-            META_PARAMS_PROB_MUTATION,
             Some((NEVER_CROSSOVER, ALWAYS_MUTATE)),
+            None,
+            static_params,
         );
 
         sut.next_individual();

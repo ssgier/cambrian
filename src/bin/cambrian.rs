@@ -50,6 +50,9 @@ struct Args {
     #[arg(long)]
     quantile: Option<f64>,
 
+    #[arg(long)]
+    initial_guess: Option<String>,
+
     obj_func_program: OsString,
     obj_func_program_args: Vec<OsString>,
 }
@@ -76,8 +79,6 @@ fn load_spec(args: &Args) -> Result<Spec> {
 
     info!("Reading spec file: {}", spec_file_display);
     let spec_str = fs::read_to_string(&args.spec_file).with_context(|| spec_ctx("read"))?;
-
-    info!("Parsing spec file");
     let spec = spec_util::from_yaml_str(&spec_str).with_context(|| spec_ctx("parse"))?;
     Ok(spec)
 }
@@ -268,11 +269,17 @@ fn main() -> Result<()> {
         .as_ref()
         .map(|dir| dir.join("detailed_report.csv"));
 
+    let explicit_init_value_json = args
+        .initial_guess
+        .map(|json_str| serde_json::from_str(&json_str))
+        .transpose().context("Failed to parse initial guess JSON")?;
+
     let result = sync_launch::launch_with_async_obj_func(
         spec,
         obj_func_def,
         algo_config,
         termination_criteria,
+        explicit_init_value_json,
         false,
         detailed_report_path.as_ref(),
     );

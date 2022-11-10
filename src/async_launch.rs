@@ -9,6 +9,7 @@ use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
 use futures::StreamExt;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn launch<F: AsyncObjectiveFunction>(
     spec: Spec,
     obj_func: F,
@@ -17,6 +18,7 @@ pub async fn launch<F: AsyncObjectiveFunction>(
     detailed_report_sender: UnboundedSender<DetailedReportItem>,
     max_num_eval: Option<usize>,
     target_obj_func_val: Option<f64>,
+    explicit_init_value: Option<serde_json::Value>,
 ) -> Result<FinalReport, Error> {
     let mut abort_sig_sender_holder: Option<oneshot::Sender<()>>;
     let (abort_sig_sender, abort_signal_recv) = oneshot::channel();
@@ -30,6 +32,7 @@ pub async fn launch<F: AsyncObjectiveFunction>(
         detailed_report_sender,
         max_num_eval,
         target_obj_func_val,
+        explicit_init_value,
     );
 
     tokio::pin!(controller);

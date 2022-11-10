@@ -25,7 +25,7 @@ fn run(
 
     let algo_config = AlgoConfigBuilder::new().build().unwrap();
 
-    sync_launch::launch(spec, obj_func, algo_config, termination_criteria, true, None)
+    sync_launch::launch(spec, obj_func, algo_config, termination_criteria, None, true, None)
 }
 
 #[test]

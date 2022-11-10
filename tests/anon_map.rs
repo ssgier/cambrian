@@ -43,6 +43,7 @@ fn anon_map() {
         obj_func,
         algo_config,
         termination_criteria,
+        None,
         true,
         None,
     )

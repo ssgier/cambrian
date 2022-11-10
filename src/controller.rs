@@ -3,6 +3,7 @@ use crate::algorithm::IndContext;
 use crate::detailed_report::DetailedReportItem;
 use crate::error::Error;
 use crate::spec::Spec;
+use crate::value_util;
 use crate::{
     meta::{AlgoConfig, AsyncObjectiveFunction},
     result::FinalReport,
@@ -15,6 +16,7 @@ use log::info;
 use std::time::{Duration, Instant};
 use tangram_finite::FiniteF64;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn start_controller<F: AsyncObjectiveFunction>(
     algo_config: AlgoConfig,
     spec: Spec,
@@ -23,6 +25,7 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
     detailed_report_sender: UnboundedSender<DetailedReportItem>,
     max_num_eval: Option<usize>,
     target_obj_func_val: Option<f64>,
+    explicit_init_value_json: Option<serde_json::Value>,
 ) -> Result<FinalReport, Error> {
     let start_ts = Instant::now();
 
@@ -32,11 +35,16 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
     let mut count_accepted = 0usize;
     let mut count_rejected = 0usize;
 
+    let explicit_init_value = explicit_init_value_json
+        .map(|json_val| value_util::from_json_value(&json_val, &spec))
+        .transpose()?;
+
     let mut algo_ctx = AlgoContext::new(
         spec,
         algo_config.individual_sample_size,
         algo_config.obj_func_val_quantile,
         None,
+        explicit_init_value,
     );
 
     let mut evaled_individuals = FuturesUnordered::new();

@@ -31,6 +31,7 @@ fn run(
         obj_func,
         algo_config,
         termination_criteria,
+        None,
         false,
         None,
     )

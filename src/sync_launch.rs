@@ -34,6 +34,7 @@ pub fn launch<F, T>(
     obj_func: F,
     algo_config: AlgoConfig,
     termination_criteria: T,
+    explicit_init_value_json: Option<serde_json::Value>,
     in_process_computation: bool,
     detailed_report_path: Option<&PathBuf>,
 ) -> Result<FinalReport, Error>
@@ -46,6 +47,7 @@ where
         AsyncObjectiveFunctionImpl::wrap(obj_func),
         algo_config,
         termination_criteria,
+        explicit_init_value_json,
         in_process_computation,
         detailed_report_path,
     )
@@ -88,6 +90,7 @@ pub fn launch_with_async_obj_func<F, T>(
     obj_func: F,
     algo_config: AlgoConfig,
     termination_criteria: T,
+    explicit_init_value_json: Option<serde_json::Value>,
     in_process_computation: bool,
     detailed_report_path: Option<&PathBuf>,
 ) -> Result<FinalReport, Error>
@@ -116,6 +119,7 @@ where
         detailed_report_sender,
         termination_criteria.max_num_obj_func_eval,
         termination_criteria.target_obj_func_val,
+        explicit_init_value_json,
     );
 
     let detailed_reporting_fut =

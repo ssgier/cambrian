@@ -2,6 +2,7 @@ use self::TerminationCriterion::*;
 use crate::error::Error;
 use std::time::Duration;
 
+#[derive(Debug, Clone)]
 pub enum TerminationCriterion {
     NumObjFuncEval(usize),
     TargetObjFuncVal(f64),
