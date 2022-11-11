@@ -6,8 +6,9 @@ use crate::spec_util::is_leaf;
 use crate::{spec, spec::Spec, value, value::Value};
 use itertools::Itertools;
 use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
 use rand_distr::{Bernoulli, Distribution};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ops::Deref;
 
 impl Default for Crossover<SelectionImpl> {
@@ -144,8 +145,14 @@ where
                         path_node_ctx,
                         rng,
                     ),
-                    spec::Node::AnonMap { value_type, .. } => self.crossover_anon_map(
+                    spec::Node::AnonMap {
                         value_type,
+                        min_size,
+                        max_size,
+                        ..
+                    } => self.crossover_anon_map(
+                        value_type,
+                        (*min_size, *max_size),
                         individuals_ordered,
                         crossover_params,
                         path_node_ctx,
@@ -225,15 +232,14 @@ where
         value::Node::Sub(result_value_map)
     }
 
-    fn crossover_anon_map(
+    fn select_anon_map_keys(
         &self,
-        value_type: &spec::Node,
+        size_bounds: (Option<usize>, Option<usize>),
         individuals_ordered: &[&value::Node],
-        crossover_params: &CrossoverParams,
-        path_node_ctx: &mut PathNodeContext,
         rng: &mut StdRng,
-    ) -> value::Node {
-        let all_keys: HashSet<&usize> = individuals_ordered
+        crossover_params: &CrossoverParams,
+    ) -> Vec<usize> {
+        let mut all_keys: Vec<usize> = individuals_ordered
             .iter()
             .flat_map(|individual| {
                 if let value::Node::AnonMap(mapping) = *individual {
@@ -242,19 +248,70 @@ where
                     unreachable!()
                 }
             })
+            .unique()
+            .copied()
             .collect();
 
-        let result_value_map: HashMap<usize, Box<value::Node>> = all_keys
+        all_keys.shuffle(rng);
+
+        let mut selected_keys = Vec::new();
+
+        let min_size = size_bounds.0.unwrap_or(0);
+        let max_size = size_bounds.1.unwrap_or(all_keys.len());
+
+        for key in all_keys {
+            let is_select_key = if selected_keys.len() < min_size {
+                true
+            } else {
+                let presence_values = individuals_ordered
+                    .iter()
+                    .map(|ind| extract_anon_map_inner(ind).contains_key(&key))
+                    .collect_vec();
+
+                if presence_values.iter().unique().count() > 1 {
+                    self.selection.select_value(
+                        &presence_values,
+                        crossover_params.selection_pressure,
+                        rng,
+                    )
+                } else {
+                    presence_values[0]
+                }
+            };
+
+            if is_select_key {
+                selected_keys.push(key);
+            }
+
+            if selected_keys.len() == max_size {
+                break;
+            }
+        }
+
+        selected_keys
+    }
+
+    fn crossover_anon_map(
+        &self,
+        value_type: &spec::Node,
+        size_bounds: (Option<usize>, Option<usize>),
+        individuals_ordered: &[&value::Node],
+        crossover_params: &CrossoverParams,
+        path_node_ctx: &mut PathNodeContext,
+        rng: &mut StdRng,
+    ) -> value::Node {
+        let selected_keys =
+            self.select_anon_map_keys(size_bounds, individuals_ordered, rng, crossover_params);
+
+        let result_value_map: HashMap<usize, Box<value::Node>> = selected_keys
             .iter()
             .map(|key| {
-                let child_values: Vec<Option<&value::Node>> = individuals_ordered
+                let child_values: Vec<&value::Node> = individuals_ordered
                     .iter()
-                    .map(|individual| {
-                        if let value::Node::AnonMap(mapping) = *individual {
-                            mapping.get(key).map(Deref::deref)
-                        } else {
-                            unreachable!()
-                        }
+                    .filter_map(|individual| {
+                        extract_anon_map_inner(individual)
+                            .get(key)
+                            .map(Deref::deref)
                     })
                     .collect();
 
@@ -267,7 +324,7 @@ where
 
                 (
                     *key,
-                    self.do_crossover_optional(
+                    self.do_crossover(
                         value_type,
                         &child_values,
                         &child_crossover_params,
@@ -276,9 +333,7 @@ where
                     ),
                 )
             })
-            .filter_map(|(child_key, child_val)| {
-                child_val.map(|present_value| (*child_key, Box::new(present_value)))
-            })
+            .map(|(child_key, child_val)| (child_key, Box::new(child_val)))
             .collect();
 
         value::Node::AnonMap(result_value_map)
@@ -448,6 +503,14 @@ pub struct Crossover<S: Selection = SelectionImpl> {
     selection: S,
 }
 
+fn extract_anon_map_inner(value: &value::Node) -> &HashMap<usize, Box<value::Node>> {
+    if let value::Node::AnonMap(mapping) = value {
+        mapping
+    } else {
+        unreachable!()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -457,6 +520,7 @@ mod tests {
     use crate::testutil::extract_from_value;
     use rand::SeedableRng;
     use std::cell::Cell;
+    use std::collections::HashSet;
 
     struct SelectionMock {
         selected_indexes: Vec<usize>,
@@ -1184,6 +1248,88 @@ mod tests {
         let value1 = extract_from_value(&result, &["1"]).unwrap();
 
         assert_ne!(value0, value1);
+    }
+
+    #[test]
+    fn anon_map_crossover_size_bounds() {
+        let spec_min_size_str = "
+        type: anon map
+        initSize: 1
+        minSize: 1
+        valueType:
+            type: bool
+            init: true
+        ";
+
+        let spec_max_size_str = "
+        type: anon map
+        initSize: 1
+        maxSize: 1
+        valueType:
+            type: bool
+            init: true
+        ";
+
+        let value0 = Value(value::Node::AnonMap(HashMap::from([(
+            0,
+            Box::new(value::Node::Bool(false)),
+        )])));
+
+        let value1 = Value(value::Node::AnonMap(HashMap::from([(
+            1,
+            Box::new(value::Node::Bool(true)),
+        )])));
+
+        let spec_min_size = spec_util::from_yaml_str(spec_min_size_str).unwrap();
+        let spec_max_size = spec_util::from_yaml_str(spec_max_size_str).unwrap();
+
+        let mut root_path_node_ctx = PathNodeContext::default();
+        root_path_node_ctx.add_nodes_for(&value0.0);
+        root_path_node_ctx.add_nodes_for(&value1.0);
+        let mut path_ctx = PathContext(root_path_node_ctx);
+
+        let mut rng = make_rng();
+        let sut = Crossover::new();
+
+        let mut sizes_min_size = HashSet::new();
+        let mut sizes_max_size = HashSet::new();
+
+        let crossover_params = CrossoverParams {
+            crossover_prob: 1.0,
+            selection_pressure: 0.5,
+        };
+
+        for _ in 0..100 {
+            let result_min_size = sut.crossover(
+                &spec_min_size,
+                &[&value0, &value1],
+                &crossover_params,
+                &mut path_ctx,
+                &mut rng,
+            );
+
+            let result_max_size = sut.crossover(
+                &spec_max_size,
+                &[&value0, &value1],
+                &crossover_params,
+                &mut path_ctx,
+                &mut rng,
+            );
+
+            if let (
+                value::Node::AnonMap(mapping_min_size),
+                value::Node::AnonMap(mapping_max_size),
+            ) = (result_min_size.0, result_max_size.0)
+            {
+                sizes_min_size.insert(mapping_min_size.len());
+                sizes_max_size.insert(mapping_max_size.len());
+            } else {
+                panic!();
+            }
+        }
+
+        assert_eq!(sizes_min_size, HashSet::from([1, 2]));
+        assert_eq!(sizes_max_size, HashSet::from([0, 1]));
     }
 
     #[test]
