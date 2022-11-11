@@ -30,6 +30,12 @@ impl KeyManager {
     }
 }
 
+impl PathContext {
+    pub fn add_nodes_for(&mut self, value: &value::Value) {
+        self.0.add_nodes_for(&value.0)
+    }
+}
+
 impl PathNodeContext {
     pub fn add_nodes_for(&mut self, node: &value::Node) {
         match node {

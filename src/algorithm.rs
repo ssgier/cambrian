@@ -79,15 +79,19 @@ impl AlgoContext {
         explicit_init_value: Option<Value>,
         static_params: StaticParams,
     ) -> Self {
+        let initial_value = explicit_init_value.unwrap_or_else(|| spec.initial_value());
+        let mut path_ctx = PathContext::default();
+        path_ctx.add_nodes_for(&initial_value);
+
         Self {
-            initial_value: explicit_init_value.unwrap_or_else(|| spec.initial_value()),
+            initial_value,
             spec,
             individual_sample_size,
             obj_func_val_quantile,
             individuals: BTreeMap::default(),
             initial_value_used: false,
             crossover: Crossover::new(),
-            path_ctx: PathContext::default(),
+            path_ctx,
             rng: StdRng::seed_from_u64(0),
             next_id: 0,
             static_params,
@@ -415,8 +419,10 @@ fn wrap(
 mod tests {
     use super::*;
     use crate::spec;
+    use crate::spec_util;
     use crate::value;
     use float_cmp::assert_approx_eq;
+    use std::collections::HashMap;
 
     const NEVER_CROSSOVER: CrossoverParams = CrossoverParams {
         crossover_prob: 0.0,
@@ -689,5 +695,45 @@ mod tests {
         assert_approx_eq!(f64, summary_obj_func_val(&values, 0.0).get(), 0.1);
         assert_approx_eq!(f64, summary_obj_func_val(&values, 0.5).get(), 1.6);
         assert_approx_eq!(f64, summary_obj_func_val(&values, 1.0).get(), 3.1);
+    }
+
+    #[test]
+    fn initialized_path_context() {
+        let spec_str = "
+        type: anon map
+        initSize: 1
+        minSize: 1
+        valueType:
+            type: bool
+            init: false
+        ";
+
+        let mut sut = AlgoContext::new_impl(
+            spec_util::from_yaml_str(spec_str).unwrap(),
+            1,
+            1.0,
+            Some((NEVER_CROSSOVER, ALWAYS_MUTATE)),
+            None,
+            STATIC_PARAMS,
+        );
+
+        sut.next_individual();
+
+        // the path context should have picked up the anon map key 0 from the initial value
+        // and then provide the next key 1 for the resizing map in the mutation
+        let mutated_init_val = sut.next_individual();
+
+        assert!(matches!(
+            mutated_init_val,
+            IndContext {
+                id: 1,
+                value: Value(value::Node::AnonMap(mapping)),
+                state: IndState::PendingEval(_),
+                ..
+            } if mapping == HashMap::from([
+                    (0, Box::new(value::Node::Bool(true))),
+                    (1, Box::new(value::Node::Bool(true))),
+            ])
+        ));
     }
 }
