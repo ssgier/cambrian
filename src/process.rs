@@ -52,6 +52,7 @@ fn kill_and_reap_child_proc_group(unreaped_pgid: Option<Pid>) -> Result<(), Erro
 
 #[allow(non_snake_case)]
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ObjFuncChildResult {
     objFuncVal: Option<f64>,
 }
@@ -95,7 +96,8 @@ impl AsyncObjectiveFunction for ObjFuncProcessDef {
             .arg(&json_arg)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .group_spawn()?;
+            .group_spawn()
+            .map_err(Error::UnableToLaunchObjFuncProcess)?;
 
         let unreaped_pgid = child.id().map(|pgid| Pid::from_raw(pgid as i32));
 

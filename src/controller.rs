@@ -82,7 +82,7 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
                             obj_func_val: evaled_individual.obj_func_val.map(FiniteF64::get),
                         };
 
-                        detailed_report_sender.unbounded_send(detailed_report_item).unwrap();
+                        detailed_report_sender.unbounded_send(detailed_report_item).map_err(|_err| Error::ClientHungUp)?;
 
                         if evaled_individual.obj_func_val.is_some() {
                             count_accepted += 1;

@@ -48,6 +48,18 @@ fn rejected_value() {
 
 #[test]
 #[cfg(target_os = "linux")]
+fn invalid_child_output() {
+    let script_name = "mock_obj_func_invalid_output.sh";
+    let kill_after = Duration::from_millis(200);
+    let result = run(script_name, kill_after, Duration::from_millis(1000));
+    assert!(matches!(
+        result.unwrap_err(),
+        Error::ObjFuncProcInvalidOutput(_)
+    ));
+}
+
+#[test]
+#[cfg(target_os = "linux")]
 fn obj_func_process_error_exit() {
     let script_name = "mock_obj_func_error.sh";
     let kill_after = Duration::from_millis(200);

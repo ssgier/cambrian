@@ -45,6 +45,7 @@ fn build_real(
         serde_json::Value::Number(number) => match number.as_f64() {
             None => Err(Error::NumberConversionFailed {
                 path_hint: format_path(path),
+                expected_type_hint: "a float".to_string(),
             }),
             Some(real_num) => {
                 let out_of_bounds = match (min, max) {
@@ -79,6 +80,7 @@ fn build_int(
         serde_json::Value::Number(number) => match number.as_i64() {
             None => Err(Error::NumberConversionFailed {
                 path_hint: format_path(path),
+                expected_type_hint: "an integer".to_string(),
             }),
             Some(real_num) => {
                 let out_of_bounds = match (min, max) {
@@ -186,6 +188,7 @@ fn build_anon_map(
                     Err(_) => {
                         return Err(Error::InvalidAnonMapKey {
                             path_hint: format_path(path),
+                            invalid_key_formatted: json_key.to_owned(),
                         })
                     }
                 };
@@ -227,8 +230,9 @@ fn build_variant(
                 })
             }
         }
-        serde_json::Value::Object(_) => Err(Error::OnlyOneVariantAllowed {
+        serde_json::Value::Object(value_mapping) => Err(Error::ExactlyOneVariantValueRequired {
             path_hint: format_path(path),
+            num_variant_values_found: value_mapping.len(),
         }),
         _ => Err(Error::WrongTypeForValue {
             path_hint: format_path(path),
@@ -247,7 +251,7 @@ fn build_enum(
             if variant_values.contains(variant_value) {
                 Ok(Node::Enum(variant_value.to_owned()))
             } else {
-                Err(Error::UnknownValue {
+                Err(Error::UnknownEnumValue {
                     path_hint: format_path(path),
                     value: variant_value.to_owned(),
                 })
@@ -559,7 +563,7 @@ mod tests {
         let result = from_json_str(value_str, &spec);
 
         assert!(
-            matches!(result, Err(Error::NumberConversionFailed { path_hint }) if path_hint == *"(root)" )
+            matches!(result, Err(Error::NumberConversionFailed { path_hint, expected_type_hint }) if path_hint == *"(root)" && expected_type_hint == *"an integer" )
         );
     }
 
@@ -722,7 +726,8 @@ mod tests {
         let result = from_json_str(value_str, &spec);
 
         assert!(
-            matches!(result, Err(Error::OnlyOneVariantAllowed { path_hint }) if path_hint.as_str() == "(root)")
+            matches!(result, Err(Error::ExactlyOneVariantValueRequired { path_hint, num_variant_values_found })
+                if path_hint.as_str() == "(root)" && num_variant_values_found == 2)
         );
     }
 
@@ -747,7 +752,8 @@ mod tests {
         let result = from_json_str(value_str, &spec);
 
         assert!(
-            matches!(result, Err(Error::WrongTypeForValue { path_hint, type_hint }) if path_hint.as_str() == "foo" && type_hint == "integer")
+            matches!(result, Err(Error::WrongTypeForValue { path_hint, type_hint })
+                if path_hint.as_str() == "foo" && type_hint == "integer")
         );
     }
 
@@ -785,7 +791,7 @@ mod tests {
         let result = from_json_str(value_str, &spec);
 
         assert!(
-            matches!(result, Err(Error::UnknownValue { path_hint, value }) if path_hint.as_str() == "(root)" && value == "bars")
+            matches!(result, Err(Error::UnknownEnumValue { path_hint, value }) if path_hint.as_str() == "(root)" && value == "bars")
         );
     }
 
@@ -928,7 +934,8 @@ mod tests {
         let result = from_json_str(value_str, &spec);
 
         assert!(
-            matches!(result, Err(Error::InvalidAnonMapKey { path_hint }) if path_hint.as_str() == "(root)")
+            matches!(result, Err(Error::InvalidAnonMapKey { path_hint, invalid_key_formatted })
+                if path_hint.as_str() == "(root)" && invalid_key_formatted.as_str() == "foo")
         );
     }
 

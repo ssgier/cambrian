@@ -26,7 +26,7 @@ fn build_node(yaml_val: &serde_yaml::Value, path: &[&str]) -> Result<Node, Error
     let mapping = match yaml_val {
         serde_yaml::Value::Mapping(mapping) => mapping,
         _ => {
-            return Err(Error::YamlMustBeMap {
+            return Err(Error::ValueMustBeMap {
                 path_hint: format_path(path),
             })
         }
@@ -201,7 +201,7 @@ fn build_sub(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error
             None => {
                 return Err(Error::InvalidAttributeKeyType {
                     path_hint: format_path(path),
-                    formatted_attribute_key: format!("{:?}", key),
+                    formatted_attribute_key: format_attribute_key(key),
                 })
             }
             _ => (),
@@ -290,7 +290,7 @@ fn build_variant(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, E
             None => {
                 return Err(Error::InvalidAttributeKeyType {
                     path_hint: format_path(path),
-                    formatted_attribute_key: format!("{:?}", key),
+                    formatted_attribute_key: format_attribute_key(key),
                 })
             }
             _ => (),
@@ -538,13 +538,17 @@ fn check_for_unexpected_attributes<const N: usize>(
             _ => {
                 return Err(Error::InvalidAttributeKeyType {
                     path_hint: format_path(path),
-                    formatted_attribute_key: format!("{:?}", attribute_key),
+                    formatted_attribute_key: format_attribute_key(attribute_key),
                 });
             }
         }
     }
 
     Ok(())
+}
+
+fn format_attribute_key(key: &serde_yaml::Value) -> String {
+    serde_yaml::to_string(key).unwrap().replace('\n', "")
 }
 
 #[cfg(test)]
@@ -567,7 +571,7 @@ mod tests {
         let yaml_str = "foo";
         assert!(matches!(
             from_yaml_str(yaml_str),
-            Err(Error::YamlMustBeMap { .. })
+            Err(Error::ValueMustBeMap { .. })
         ));
     }
 

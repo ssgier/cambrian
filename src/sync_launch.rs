@@ -14,7 +14,7 @@ use ctrlc;
 use futures::channel::mpsc;
 use futures::channel::mpsc::UnboundedReceiver;
 use futures::executor;
-use futures::future;
+use futures::future::Either;
 use futures::pin_mut;
 use futures::select;
 use futures::sink::SinkExt;
@@ -138,24 +138,28 @@ where
         .build()
         .unwrap()
         .block_on(async {
-            match termination_criteria.terminate_after {
-                None => futures::join!(launch_fut, detailed_reporting_fut).0,
-                Some(terminate_after) => {
-                    let timeout_fut = Delay::new(terminate_after).fuse();
-                    let work_fut = future::join(launch_fut, detailed_reporting_fut).fuse();
-                    pin_mut!(timeout_fut, work_fut);
+            let timeout_fut = if let Some(terminate_after) = termination_criteria.terminate_after {
+                Either::Left(Delay::new(terminate_after).fuse())
+            } else {
+                Either::Right(futures::future::pending())
+            };
 
-                    loop {
-                        select! {
-                            () = &mut timeout_fut => {
-                                info!("Abort time reached");
-                                cmd_sender.send(Command::Terminate).await.ok();
-                            }
-                            result = &mut work_fut => {
-                                let final_report = result.0;
-                                return final_report;
-                            }
-                        }
+            let launch_fut = launch_fut.fuse();
+            let detailed_reporting_fut = detailed_reporting_fut.fuse();
+            pin_mut!(timeout_fut, launch_fut, detailed_reporting_fut);
+
+            loop {
+                select! {
+                    () = &mut timeout_fut => {
+                        info!("Abort time reached");
+                        cmd_sender.send(Command::Terminate).await.unwrap();
+                    }
+                    res = &mut launch_fut => {
+                        detailed_reporting_fut.await?;
+                        return res;
+                    }
+                    res = &mut detailed_reporting_fut => {
+                        res?;
                     }
                 }
             }

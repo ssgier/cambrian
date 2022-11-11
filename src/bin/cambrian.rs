@@ -32,8 +32,8 @@ struct Args {
     #[arg(long)]
     terminate_after: Option<String>,
 
-    #[arg(short = 'p', long)]
-    num_parallel: Option<usize>,
+    #[arg(long)]
+    num_concurrent: Option<usize>,
 
     #[arg(short = 's', long)]
     spec_file: PathBuf,
@@ -86,8 +86,8 @@ fn load_spec(args: &Args) -> Result<Spec> {
 fn make_algo_conf(args: &Args) -> Result<AlgoConfig> {
     let mut algo_config_builder = AlgoConfigBuilder::new();
 
-    if let Some(num_parallel) = args.num_parallel {
-        algo_config_builder.num_concurrent(num_parallel);
+    if let Some(num_concurrent) = args.num_concurrent {
+        algo_config_builder.num_concurrent(num_concurrent);
     }
 
     if let Some(sample_size) = args.sample_size {
@@ -272,7 +272,8 @@ fn main() -> Result<()> {
     let explicit_init_value_json = args
         .initial_guess
         .map(|json_str| serde_json::from_str(&json_str))
-        .transpose().context("Failed to parse initial guess JSON")?;
+        .transpose()
+        .context("Failed to parse initial guess JSON. Check validity.")?;
 
     let result = sync_launch::launch_with_async_obj_func(
         spec,
