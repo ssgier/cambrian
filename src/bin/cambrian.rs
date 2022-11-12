@@ -3,12 +3,15 @@ use cambrian::error::{Error, ProcOutputWithObjFuncArg};
 use cambrian::meta::AlgoConfig;
 use cambrian::result::FinalReport;
 use cambrian::spec::Spec;
+use cambrian::sync_launch::DetailedReportingFileInfo;
 use cambrian::termination::TerminationCriterion;
 use cambrian::{meta::AlgoConfigBuilder, process::ObjFuncProcessDef, spec_util, sync_launch};
 use clap::Parser;
 use log::{info, LevelFilter};
 use parse_duration::parse::parse;
+use std::fmt::Write;
 use std::os::unix::prelude::OsStrExt;
+use std::path::Path;
 use std::{ffi::OsString, fs, path::PathBuf, time::Duration};
 
 #[derive(Parser, Debug)]
@@ -156,12 +159,6 @@ fn process_report(report: FinalReport, out_dir: &Option<PathBuf>) -> Result<()> 
             "report",
             report.to_string().as_bytes(),
         )?;
-
-        write_file(
-            &out_dir.join("best_seen.json"),
-            "best seen json",
-            report.best_seen.value.to_string().as_bytes(),
-        )?;
     }
 
     println!("{}", report.best_seen.value);
@@ -175,25 +172,23 @@ fn write_file(path: &PathBuf, descr: &str, content: &[u8]) -> Result<()> {
 }
 
 fn dump_diagnostic_files(
-    diagnostic_file_dump_info: (&PathBuf, &ProcOutputWithObjFuncArg),
+    dump_info: &DiagnosticDumpFileInfo,
+    proc_info: &ProcOutputWithObjFuncArg,
 ) -> Result<()> {
-    let out_dir = diagnostic_file_dump_info.0;
-    let proc_info = diagnostic_file_dump_info.1;
-
     write_file(
-        &out_dir.join("failed_obj_func_arg"),
+        &dump_info.failed_obj_func_arg_file_path,
         "failed objective function argument",
         proc_info.obj_func_arg.as_bytes(),
     )?;
 
     write_file(
-        &out_dir.join("failed_obj_func_stdout"),
+        &dump_info.failed_obj_func_stdout_file_path,
         "failed objective function stdout",
         &proc_info.output.stdout,
     )?;
 
     write_file(
-        &out_dir.join("failed_obj_func_stderr"),
+        &dump_info.failed_obj_func_stderr_file_path,
         "failed objective function stderr",
         &proc_info.output.stderr,
     )?;
@@ -201,15 +196,15 @@ fn dump_diagnostic_files(
     Ok(())
 }
 
-fn diagnostic_file_dump_info<'a, 'b>(
-    out_dir: &'a Option<PathBuf>,
-    result: &'b Result<FinalReport, Error>,
-) -> Option<(&'a PathBuf, &'b ProcOutputWithObjFuncArg)> {
+fn extract_diagnostic_info<'a>(
+    out_dir: &Option<PathBuf>,
+    result: &'a Result<FinalReport, Error>,
+) -> Option<(DiagnosticDumpFileInfo, &'a ProcOutputWithObjFuncArg)> {
     match out_dir {
         Some(out_dir) => match result {
             Err(Error::ObjFuncProcFailed(proc_out_with_arg))
             | Err(Error::ObjFuncProcInvalidOutput(proc_out_with_arg)) => {
-                Some((out_dir, proc_out_with_arg))
+                Some((DiagnosticDumpFileInfo::new(out_dir), proc_out_with_arg))
             }
             _ => None,
         },
@@ -245,6 +240,92 @@ fn handle_existing_out_dir(out_dir: &PathBuf, force: bool) -> Result<()> {
     Ok(())
 }
 
+fn make_detailed_reporting_file_info(args: &Args) -> Option<DetailedReportingFileInfo> {
+    args.out_dir.as_ref().map(|out_dir| {
+        let detailed_report_file_path = out_dir.join("detailed_report.csv");
+        let best_seen_file_path = out_dir.join("best_seen.json");
+
+        DetailedReportingFileInfo {
+            detailed_report_file_path,
+            best_seen_file_path,
+        }
+    })
+}
+
+struct DiagnosticDumpFileInfo {
+    failed_obj_func_arg_file_path: PathBuf,
+    failed_obj_func_stdout_file_path: PathBuf,
+    failed_obj_func_stderr_file_path: PathBuf,
+}
+
+impl DiagnosticDumpFileInfo {
+    fn new(out_dir: &Path) -> Self {
+        Self {
+            failed_obj_func_arg_file_path: out_dir.join("failed_obj_func_arg"),
+            failed_obj_func_stdout_file_path: out_dir.join("failed_obj_func_stdout"),
+            failed_obj_func_stderr_file_path: out_dir.join("failed_obj_func_stderr"),
+        }
+    }
+}
+
+fn provide_context(
+    result: Result<FinalReport, Error>,
+    diagnostic_file_info: Option<DiagnosticDumpFileInfo>,
+    detailed_reporting_file_info: Option<DetailedReportingFileInfo>,
+) -> Result<FinalReport> {
+    result.with_context(|| {
+        let mut descr = "Algorithm run failed.".to_string();
+
+        if let Some(file_info) = diagnostic_file_info {
+            write!(
+                &mut descr,
+                r"
+Argument passed to failed objective function process can be found in file: {}",
+                file_info.failed_obj_func_arg_file_path.display()
+            )
+            .unwrap();
+
+            write!(
+                &mut descr,
+                r"
+Standard output of failed objective function process can be found in file: {}",
+                file_info.failed_obj_func_stdout_file_path.display()
+            )
+            .unwrap();
+
+            write!(
+                &mut descr,
+                r"
+Standard error output of failed objective function process can be found in file: {}",
+                file_info.failed_obj_func_stderr_file_path.display()
+            )
+            .unwrap();
+        }
+
+        if let Some(file_info) = detailed_reporting_file_info {
+            write!(
+                &mut descr,
+                r"
+Detailed reporting information can be found in file: {}",
+                file_info.detailed_report_file_path.display()
+            )
+            .unwrap();
+
+            if file_info.best_seen_file_path.exists() {
+                write!(
+                    &mut descr,
+                    r"
+Best seen value can be found in file: {}",
+                    file_info.best_seen_file_path.display()
+                )
+                .unwrap();
+            }
+        }
+
+        descr
+    })
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -257,17 +338,14 @@ fn main() -> Result<()> {
         handle_existing_out_dir(out_dir, args.force)?;
     }
 
+    let detailed_reporting_file_info = make_detailed_reporting_file_info(&args);
+
     let spec = load_spec(&args)?;
     let obj_func_def = make_obj_func_def(
         args.obj_func_program,
         args.obj_func_program_args,
         args.kill_obj_func_after,
     )?;
-
-    let detailed_report_path = args
-        .out_dir
-        .as_ref()
-        .map(|dir| dir.join("detailed_report.csv"));
 
     let explicit_init_value_json = args
         .initial_guess
@@ -282,25 +360,18 @@ fn main() -> Result<()> {
         termination_criteria,
         explicit_init_value_json,
         false,
-        detailed_report_path.as_ref(),
+        detailed_reporting_file_info.as_ref(),
     );
 
-    let diagnostic_file_dump_info = diagnostic_file_dump_info(&args.out_dir, &result);
-    let do_dump = diagnostic_file_dump_info.is_some();
+    let diagnostic_info = extract_diagnostic_info(&args.out_dir, &result);
 
-    if let Some(diagnostic_file_dump_info) = diagnostic_file_dump_info {
-        dump_diagnostic_files(diagnostic_file_dump_info)?;
+    if let Some((file_info, proc_info)) = &diagnostic_info {
+        dump_diagnostic_files(file_info, proc_info)?;
     }
 
-    let report = result.with_context(|| {
-        let mut descr = "Algorithm run failed.".to_string();
+    let diagnostic_file_info = diagnostic_info.map(|info| info.0);
 
-        if do_dump {
-            descr.push_str(" Diagnostic files (objective function arg, stdout, stderr of failed objective function process) have been dumped in output directory");
-        }
-
-        descr
-    })?;
+    let report = provide_context(result, diagnostic_file_info, detailed_reporting_file_info)?;
 
     process_report(report, &args.out_dir)?;
     info!("Done");

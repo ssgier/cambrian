@@ -1,5 +1,4 @@
 use crate::meta::MetaParamsWrapper;
-use crate::value;
 use std::time::Duration;
 
 #[derive(Clone)]
@@ -7,7 +6,7 @@ pub struct DetailedReportItem {
     pub individual_id: usize,
     pub eval_time: Duration,
     pub meta_params_used: Option<MetaParamsWrapper>,
-    pub input_val: value::Value,
+    pub input_val: serde_json::Value,
     pub obj_func_val: Option<f64>,
 }
 
@@ -48,7 +47,7 @@ impl DetailedReportItem {
                 )
             };
 
-        let input_val = self.input_val.to_json().to_string();
+        let input_val = self.input_val.to_string();
         let obj_func_val = self
             .obj_func_val
             .map(|val| val.to_string())

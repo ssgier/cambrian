@@ -12,7 +12,7 @@ use async_channel;
 use async_trait::async_trait;
 use ctrlc;
 use futures::channel::mpsc;
-use futures::channel::mpsc::UnboundedReceiver;
+use futures::channel::mpsc::Receiver;
 use futures::executor;
 use futures::future::Either;
 use futures::pin_mut;
@@ -29,6 +29,13 @@ use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio::runtime;
 
+const CHANNEL_BUF_SIZE: usize = 256;
+
+pub struct DetailedReportingFileInfo {
+    pub detailed_report_file_path: PathBuf,
+    pub best_seen_file_path: PathBuf,
+}
+
 pub fn launch<F, T>(
     spec: Spec,
     obj_func: F,
@@ -36,7 +43,7 @@ pub fn launch<F, T>(
     termination_criteria: T,
     explicit_init_value_json: Option<serde_json::Value>,
     in_process_computation: bool,
-    detailed_report_path: Option<&PathBuf>,
+    detailed_reporting_file_info: Option<&DetailedReportingFileInfo>,
 ) -> Result<FinalReport, Error>
 where
     F: ObjectiveFunction,
@@ -49,30 +56,64 @@ where
         termination_criteria,
         explicit_init_value_json,
         in_process_computation,
-        detailed_report_path,
+        detailed_reporting_file_info,
     )
 }
 
-async fn stream_detailed_report_items_to_file(
-    file_path: Option<&PathBuf>,
-    mut item_receiver: UnboundedReceiver<DetailedReportItem>,
+async fn write_best_seen_file(
+    value: &serde_json::Value,
+    file_info: &DetailedReportingFileInfo,
 ) -> Result<(), Error> {
-    if let Some(file_path) = file_path {
-        let mut detailed_report_file = File::create(file_path).await.map_err(|err| {
-            Error::UnableToCreateDetailedReportFile {
-                path: file_path.to_owned(),
-                source: err,
-            }
+    let mut best_seen_file = File::create(&file_info.best_seen_file_path)
+        .await
+        .map_err(|err| Error::UnableToCreateDetailedReportingFile {
+            path: file_info.best_seen_file_path.to_owned(),
+            source: err,
         })?;
+
+    best_seen_file
+        .write_all(value.to_string().as_bytes())
+        .await?;
+
+    Ok(())
+}
+
+async fn handle_detailed_report_items(
+    detailed_reporting_file_info: Option<&DetailedReportingFileInfo>,
+    mut item_receiver: Receiver<DetailedReportItem>,
+) -> Result<(), Error> {
+    if let Some(file_info) = detailed_reporting_file_info {
+        let mut detailed_report_file = File::create(&file_info.detailed_report_file_path)
+            .await
+            .map_err(|err| Error::UnableToCreateDetailedReportingFile {
+                path: file_info.detailed_report_file_path.to_owned(),
+                source: err,
+            })?;
 
         detailed_report_file
             .write_all(DetailedReportItem::get_csv_header_row().as_bytes())
             .await?;
 
+        let mut best_seen: Option<DetailedReportItem> = None;
+
         while let Some(item) = item_receiver.next().await {
             detailed_report_file
                 .write_all(item.to_csv_row().as_bytes())
                 .await?;
+
+            if let Some(item_obj_func_val) = item.obj_func_val {
+                let new_best_seen = if let Some(ref best_seen) = best_seen {
+                    let best_obj_func_val = best_seen.obj_func_val.unwrap();
+                    item_obj_func_val < best_obj_func_val
+                } else {
+                    true
+                };
+
+                if new_best_seen {
+                    write_best_seen_file(&item.input_val, file_info).await?;
+                    best_seen = Some(item);
+                }
+            };
         }
     } else {
         item_receiver
@@ -92,7 +133,7 @@ pub fn launch_with_async_obj_func<F, T>(
     termination_criteria: T,
     explicit_init_value_json: Option<serde_json::Value>,
     in_process_computation: bool,
-    detailed_report_path: Option<&PathBuf>,
+    detailed_reporting_file_info: Option<&DetailedReportingFileInfo>,
 ) -> Result<FinalReport, Error>
 where
     F: AsyncObjectiveFunction,
@@ -108,8 +149,9 @@ where
 
     let termination_criteria = termination::compile(termination_criteria)?;
 
-    let (mut cmd_sender, cmd_recv) = mpsc::unbounded::<Command>();
-    let (detailed_report_sender, detailed_report_recv) = mpsc::unbounded::<DetailedReportItem>();
+    let (mut cmd_sender, cmd_recv) = mpsc::channel::<Command>(CHANNEL_BUF_SIZE);
+    let (detailed_report_sender, detailed_report_recv) =
+        mpsc::channel::<DetailedReportItem>(CHANNEL_BUF_SIZE);
 
     let launch_fut = async_launch::launch(
         spec,
@@ -123,7 +165,7 @@ where
     );
 
     let detailed_reporting_fut =
-        stream_detailed_report_items_to_file(detailed_report_path, detailed_report_recv);
+        handle_detailed_report_items(detailed_reporting_file_info, detailed_report_recv);
 
     if termination_criteria.terminate_on_signal {
         let mut sender_for_handler = cmd_sender.clone();

@@ -5,7 +5,7 @@ use crate::message::Command;
 use crate::meta::{AlgoConfig, AsyncObjectiveFunction};
 use crate::result::FinalReport;
 use crate::spec::Spec;
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
+use futures::channel::mpsc::{Receiver, Sender};
 use futures::channel::oneshot;
 use futures::StreamExt;
 
@@ -14,8 +14,8 @@ pub async fn launch<F: AsyncObjectiveFunction>(
     spec: Spec,
     obj_func: F,
     algo_config: AlgoConfig,
-    mut cmd_recv: UnboundedReceiver<Command>,
-    detailed_report_sender: UnboundedSender<DetailedReportItem>,
+    mut cmd_recv: Receiver<Command>,
+    detailed_report_sender: Sender<DetailedReportItem>,
     max_num_eval: Option<usize>,
     target_obj_func_val: Option<f64>,
     explicit_init_value: Option<serde_json::Value>,
@@ -41,7 +41,7 @@ pub async fn launch<F: AsyncObjectiveFunction>(
         tokio::select! {
             cmd = cmd_recv.next() => {
                 if let Some(Command::Terminate) = cmd {
-                    abort_sig_sender_holder.take().unwrap().send(()).ok();
+                    abort_sig_sender_holder.take().map(|sender| sender.send(()).ok());
                 } else {
                     return Err(Error::ClientHungUp);
                 }

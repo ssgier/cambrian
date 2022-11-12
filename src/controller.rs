@@ -1,3 +1,4 @@
+use futures::SinkExt;
 use crate::algorithm::AlgoContext;
 use crate::algorithm::IndContext;
 use crate::detailed_report::DetailedReportItem;
@@ -8,7 +9,7 @@ use crate::{
     meta::{AlgoConfig, AsyncObjectiveFunction},
     result::FinalReport,
 };
-use futures::channel::mpsc::UnboundedSender;
+use futures::channel::mpsc::Sender;
 use futures::channel::oneshot;
 use futures::stream::FuturesUnordered;
 use futures::TryStreamExt;
@@ -22,7 +23,7 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
     spec: Spec,
     obj_func: F,
     mut in_abort_signal_recv: oneshot::Receiver<()>,
-    detailed_report_sender: UnboundedSender<DetailedReportItem>,
+    mut detailed_report_sender: Sender<DetailedReportItem>,
     max_num_eval: Option<usize>,
     target_obj_func_val: Option<f64>,
     explicit_init_value_json: Option<serde_json::Value>,
@@ -78,11 +79,11 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
                             individual_id: evaled_individual.ind_ctx.id,
                             eval_time: evaled_individual.eval_time,
                             meta_params_used: evaled_individual.ind_ctx.meta_params_used.clone(),
-                            input_val: evaled_individual.ind_ctx.value.clone(),
+                            input_val: evaled_individual.ind_ctx.value.to_json(),
                             obj_func_val: evaled_individual.obj_func_val.map(FiniteF64::get),
                         };
 
-                        detailed_report_sender.unbounded_send(detailed_report_item).map_err(|_err| Error::ClientHungUp)?;
+                        detailed_report_sender.send(detailed_report_item).await.map_err(|_err| Error::ClientHungUp)?;
 
                         if evaled_individual.obj_func_val.is_some() {
                             count_accepted += 1;

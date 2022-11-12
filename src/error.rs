@@ -141,8 +141,8 @@ pub enum Error {
     ZeroSampleSize,
     #[error("number of concurrent objective function evaluations must be strictly positive")]
     ZeroNumConcurrent,
-    #[error("Unable to create detailed report file at path: {}, cause: {}", .path.display(), .source)]
-    UnableToCreateDetailedReportFile {
+    #[error("Unable to create detailed reporting file at path: {}, cause: {}", .path.display(), .source)]
+    UnableToCreateDetailedReportingFile {
         path: PathBuf,
         source: std::io::Error,
     },
