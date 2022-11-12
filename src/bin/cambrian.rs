@@ -152,7 +152,7 @@ fn parse_duration(value: &str) -> Result<Duration> {
 fn process_report(report: FinalReport, out_dir: &Option<PathBuf>) -> Result<()> {
     if let Some(out_dir) = out_dir {
         write_file(
-            &out_dir.join("report.txt"),
+            &out_dir.join("summary_report.txt"),
             "report",
             report.to_string().as_bytes(),
         )?;

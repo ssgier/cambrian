@@ -1,6 +1,7 @@
 use crate::meta::MutationParams;
 use crate::path::{PathContext, PathNodeContext};
 use crate::spec;
+use crate::types::HashMap;
 use crate::value;
 use crate::value::Value;
 use lazy_static::{__Deref, lazy_static};
@@ -8,7 +9,6 @@ use rand::rngs::StdRng;
 use rand::seq::IteratorRandom;
 use rand_distr::num_traits::ToPrimitive;
 use rand_distr::{Bernoulli, Cauchy, Distribution};
-use crate::types::HashMap;
 
 pub fn mutate(
     spec: &spec::Spec,
@@ -332,7 +332,7 @@ fn mutate_optional(
             initial_value = Some(spec_node.initial_value());
             initial_value.as_ref()
         }
-        (false, value) => value
+        (false, value) => value,
     };
 
     value::Node::Optional(value_option_to_mutate.map(|value| {
@@ -352,6 +352,24 @@ fn mutate_optional(
     }))
 }
 
+fn mutate_cauchy(
+    value: f64,
+    scale: f64,
+    mutation_params: &MutationParams,
+    rng: &mut StdRng,
+) -> f64 {
+    let dist = Cauchy::new(
+        value.to_f64().unwrap(),
+        scale * mutation_params.mutation_scale,
+    );
+
+    if let Ok(dist) = dist {
+        dist.sample(rng)
+    } else {
+        value
+    }
+}
+
 fn mutate_real(
     value: f64,
     scale: f64,
@@ -364,9 +382,7 @@ fn mutate_real(
         .unwrap()
         .sample(rng)
     {
-        let mut value = Cauchy::new(value, scale * mutation_params.mutation_scale)
-            .unwrap()
-            .sample(rng);
+        let mut value = mutate_cauchy(value, scale, mutation_params, rng);
 
         if let Some(min) = min {
             value = value.max(min);
@@ -383,7 +399,7 @@ fn mutate_real(
 }
 
 fn mutate_int(
-    value: i64,
+    orig_value: i64,
     scale: f64,
     min: Option<i64>,
     max: Option<i64>,
@@ -394,27 +410,28 @@ fn mutate_int(
         .unwrap()
         .sample(rng)
     {
-        let mut value = Cauchy::new(
-            value.to_f64().unwrap(),
-            scale * mutation_params.mutation_scale,
-        )
-        .unwrap()
-        .sample(rng)
-        .round()
-        .to_i64()
-        .unwrap();
+        let value = orig_value.to_f64();
 
-        if let Some(min) = min {
-            value = value.max(min);
+        if let Some(value) = value {
+            let mut value = mutate_cauchy(value, scale, mutation_params, rng)
+                .round()
+                .to_i64()
+                .unwrap_or(orig_value);
+
+            if let Some(min) = min {
+                value = value.max(min);
+            }
+
+            if let Some(max) = max {
+                value = value.min(max);
+            }
+
+            value
+        } else {
+            orig_value
         }
-
-        if let Some(max) = max {
-            value = value.min(max);
-        }
-
-        value
     } else {
-        value
+        orig_value
     }
 }
 
@@ -435,11 +452,11 @@ mod tests {
     use crate::testutil::extract_as_anon_map;
     use crate::testutil::extract_as_bool;
     use crate::testutil::extract_as_int;
+    use crate::types::HashSet;
     use crate::{testutil::extract_as_real, value_util};
     use float_cmp::approx_eq;
     use lazy_static::__Deref;
     use rand::SeedableRng;
-    use crate::types::HashSet;
     use tangram_finite::FiniteF64;
 
     use super::*;
