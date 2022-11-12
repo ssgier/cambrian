@@ -4,7 +4,7 @@ use cambrian::{sync_launch, termination::TerminationCriterion};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-// change if checksum is expected to change
+// not constant across targets
 const CHECKSUM: u64 = 15057406331161146692;
 
 fn compute_hash(value: &serde_json::Value) -> u64 {
@@ -15,6 +15,7 @@ fn compute_hash(value: &serde_json::Value) -> u64 {
 }
 
 #[test]
+#[ignore]
 fn checksum() {
     let spec_str = "
     foo:
