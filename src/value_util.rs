@@ -1,10 +1,10 @@
 use crate::common_util::format_path;
 use crate::error::Error;
+use crate::types::HashMap;
 use crate::{
     spec,
     value::{Node, Value},
 };
-use std::collections::HashMap;
 
 pub fn from_json_str(json_str: &str, spec: &spec::Spec) -> Result<Value, Error> {
     let json_val: serde_json::Value = serde_json::from_str(json_str)?;
@@ -133,7 +133,7 @@ fn build_sub(
                     key: key.clone(),
                 }),
                 None => {
-                    let mut result_mapping = HashMap::new();
+                    let mut result_mapping = HashMap::default();
                     for (spec_key, spec_node) in spec_map {
                         let path_of_sub = [path, &[spec_key.as_str()]].concat();
                         let json_val =
@@ -168,7 +168,7 @@ fn build_anon_map(
 ) -> Result<Node, Error> {
     match json_val {
         serde_json::Value::Array(json_values) => {
-            let mut result_mapping = HashMap::new();
+            let mut result_mapping = HashMap::default();
 
             for (next_id, json_val) in json_values.iter().enumerate() {
                 let path_item = next_id.to_string();
@@ -180,7 +180,7 @@ fn build_anon_map(
             Ok(Node::AnonMap(result_mapping))
         }
         serde_json::Value::Object(json_mapping) => {
-            let mut result_mapping = HashMap::new();
+            let mut result_mapping = HashMap::default();
 
             for (json_key, json_value) in json_mapping {
                 let (key, path_item) = match str::parse::<usize>(json_key) {
@@ -584,7 +584,7 @@ mod tests {
 
         assert_eq!(
             result.unwrap(),
-            Value(Node::Sub(HashMap::from([(
+            Value(Node::Sub(HashMap::from_iter([(
                 "foo".to_owned(),
                 Box::new(Node::Int(4))
             )])))
@@ -885,7 +885,7 @@ mod tests {
 
         assert_eq!(
             result.unwrap(),
-            Value(Node::AnonMap(HashMap::from([(
+            Value(Node::AnonMap(HashMap::from_iter([(
                 0usize,
                 Box::new(Node::Bool(true))
             )])))
@@ -910,7 +910,7 @@ mod tests {
 
         assert_eq!(
             result.unwrap(),
-            Value(Node::AnonMap(HashMap::from([(
+            Value(Node::AnonMap(HashMap::from_iter([(
                 2usize,
                 Box::new(Node::Bool(true))
             )])))

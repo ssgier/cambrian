@@ -20,5 +20,6 @@ pub mod sync_launch;
 pub mod termination;
 #[cfg(test)]
 pub(crate) mod testutil;
+pub(crate) mod types;
 pub mod value;
 pub mod value_util;

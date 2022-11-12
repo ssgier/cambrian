@@ -1,7 +1,7 @@
 use crate::rescaling::RescalingContext;
 use crate::value;
 use crate::value::Node::*;
-use std::collections::HashMap;
+use crate::types::HashMap;
 
 #[derive(Default)]
 pub struct PathContext(pub PathNodeContext);
@@ -107,7 +107,7 @@ mod tests {
 
     #[test]
     fn add_all_nodes() {
-        let value = value::Value(value::Node::Sub(HashMap::from([
+        let value = value::Value(value::Node::Sub(HashMap::from_iter([
             ("a".to_string(), Box::new(value::Node::Real(1.0))),
             ("b".to_string(), Box::new(value::Node::Int(4))),
             ("c".to_string(), Box::new(value::Node::Bool(false))),
@@ -117,7 +117,7 @@ mod tests {
             ),
             (
                 "foo".to_string(),
-                Box::new(value::Node::AnonMap(HashMap::from([(
+                Box::new(value::Node::AnonMap(HashMap::from_iter([(
                     4,
                     Box::new(value::Node::Real(10.0)),
                 )]))),
@@ -164,17 +164,17 @@ mod tests {
 
     #[test]
     fn partially_overlapping_paths() {
-        let value0 = value::Value(value::Node::Sub(HashMap::from([(
+        let value0 = value::Value(value::Node::Sub(HashMap::from_iter([(
             "foo".to_string(),
-            Box::new(value::Node::AnonMap(HashMap::from([(
+            Box::new(value::Node::AnonMap(HashMap::from_iter([(
                 4,
                 Box::new(value::Node::Real(10.0)),
             )]))),
         )])));
 
-        let value1 = value::Value(value::Node::Sub(HashMap::from([(
+        let value1 = value::Value(value::Node::Sub(HashMap::from_iter([(
             "foo".to_string(),
-            Box::new(value::Node::AnonMap(HashMap::from([(
+            Box::new(value::Node::AnonMap(HashMap::from_iter([(
                 5,
                 Box::new(value::Node::Real(10.0)),
             )]))),

@@ -1,7 +1,7 @@
+use crate::types::HashMap;
 use crate::value;
 use crate::value::Value;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Spec(pub Node);
@@ -65,7 +65,7 @@ impl Node {
                 ..
             } => {
                 let mapping = if *init_size == 0 {
-                    HashMap::new()
+                    HashMap::default()
                 } else {
                     let init_val = value_type.initial_value();
 
@@ -144,12 +144,12 @@ mod tests {
                 init: false
         ";
 
-        let expected_init_val = Value(Node::Sub(HashMap::from([
+        let expected_init_val = Value(Node::Sub(HashMap::from_iter([
             ("a".to_string(), Box::new(Node::Real(2.0))),
             ("b".to_string(), Box::new(Node::Int(1))),
             (
                 "c".to_string(),
-                Box::new(Node::AnonMap(HashMap::from([(
+                Box::new(Node::AnonMap(HashMap::from_iter([(
                     0,
                     Box::new(Node::Bool(true)),
                 )]))),
@@ -175,7 +175,7 @@ mod tests {
         initSize: 0
         ";
 
-        let expected_init_val = Value(Node::AnonMap(HashMap::new()));
+        let expected_init_val = Value(Node::AnonMap(HashMap::default()));
         let init_val = from_yaml_str(spec_str).unwrap().initial_value();
 
         assert_eq!(init_val, expected_init_val);

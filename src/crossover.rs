@@ -3,12 +3,12 @@ use crate::path::{PathContext, PathNodeContext};
 use crate::selection::Selection;
 use crate::selection::SelectionImpl;
 use crate::spec_util::is_leaf;
+use crate::types::HashMap;
 use crate::{spec, spec::Spec, value, value::Value};
 use itertools::Itertools;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand_distr::{Bernoulli, Distribution};
-use std::collections::HashMap;
 use std::ops::Deref;
 
 impl Default for Crossover<SelectionImpl> {
@@ -263,20 +263,15 @@ where
             let is_select_key = if selected_keys.len() < min_size {
                 true
             } else {
-                let presence_values = individuals_ordered
-                    .iter()
-                    .map(|ind| extract_anon_map_inner(ind).contains_key(&key))
-                    .collect_vec();
+                // performing selection regardless of potential uniqueness of values, since
+                // uniqueness check has a heavy performance impact
+                let selected_ind = self.selection.select_value(
+                    individuals_ordered,
+                    crossover_params.selection_pressure,
+                    rng,
+                );
 
-                if presence_values.iter().unique().count() > 1 {
-                    self.selection.select_value(
-                        &presence_values,
-                        crossover_params.selection_pressure,
-                        rng,
-                    )
-                } else {
-                    presence_values[0]
-                }
+                extract_anon_map_inner(selected_ind).contains_key(&key)
             };
 
             if is_select_key {
@@ -518,9 +513,9 @@ mod tests {
     use crate::rescaling::{CrossoverRescaling, MutationRescaling, Rescaling};
     use crate::spec_util;
     use crate::testutil::extract_from_value;
+    use crate::types::HashSet;
     use rand::SeedableRng;
     use std::cell::Cell;
-    use std::collections::HashSet;
 
     struct SelectionMock {
         selected_indexes: Vec<usize>,
@@ -890,12 +885,12 @@ mod tests {
             init: true
         ";
 
-        let value0 = Value(value::Node::Sub(HashMap::from([
+        let value0 = Value(value::Node::Sub(HashMap::from_iter([
             ("foo".to_string(), Box::new(value::Node::Bool(false))),
             ("bar".to_string(), Box::new(value::Node::Bool(false))),
         ])));
 
-        let value1 = Value(value::Node::Sub(HashMap::from([
+        let value1 = Value(value::Node::Sub(HashMap::from_iter([
             ("foo".to_string(), Box::new(value::Node::Bool(true))),
             ("bar".to_string(), Box::new(value::Node::Bool(true))),
         ])));
@@ -930,12 +925,12 @@ mod tests {
             init: true
         ";
 
-        let value0 = Value(value::Node::Sub(HashMap::from([
+        let value0 = Value(value::Node::Sub(HashMap::from_iter([
             ("foo".to_string(), Box::new(value::Node::Bool(false))),
             ("bar".to_string(), Box::new(value::Node::Bool(false))),
         ])));
 
-        let value1 = Value(value::Node::Sub(HashMap::from([
+        let value1 = Value(value::Node::Sub(HashMap::from_iter([
             ("foo".to_string(), Box::new(value::Node::Bool(true))),
             ("bar".to_string(), Box::new(value::Node::Bool(true))),
         ])));
@@ -1047,14 +1042,14 @@ mod tests {
         ";
 
         let value0 = Value(value::Node::Optional(Some(Box::new(value::Node::Sub(
-            HashMap::from([
+            HashMap::from_iter([
                 ("foo".to_string(), Box::new(value::Node::Bool(false))),
                 ("bar".to_string(), Box::new(value::Node::Bool(false))),
             ]),
         )))));
 
         let value1 = Value(value::Node::Optional(Some(Box::new(value::Node::Sub(
-            HashMap::from([
+            HashMap::from_iter([
                 ("foo".to_string(), Box::new(value::Node::Bool(true))),
                 ("bar".to_string(), Box::new(value::Node::Bool(true))),
             ]),
@@ -1103,7 +1098,7 @@ mod tests {
 
         let value0 = Value(value::Node::Variant(
             "foo".to_string(),
-            Box::new(value::Node::Sub(HashMap::from([
+            Box::new(value::Node::Sub(HashMap::from_iter([
                 ("foo".to_string(), Box::new(value::Node::Bool(false))),
                 ("bar".to_string(), Box::new(value::Node::Bool(false))),
             ]))),
@@ -1111,7 +1106,7 @@ mod tests {
 
         let value1 = Value(value::Node::Variant(
             "foo".to_string(),
-            Box::new(value::Node::Sub(HashMap::from([
+            Box::new(value::Node::Sub(HashMap::from_iter([
                 ("foo".to_string(), Box::new(value::Node::Bool(true))),
                 ("bar".to_string(), Box::new(value::Node::Bool(true))),
             ]))),
@@ -1156,12 +1151,12 @@ mod tests {
                 scale: 1
         ";
 
-        let value0 = Value(value::Node::Sub(HashMap::from([
+        let value0 = Value(value::Node::Sub(HashMap::from_iter([
             ("foo".to_string(), Box::new(value::Node::Optional(None))),
             ("bar".to_string(), Box::new(value::Node::Optional(None))),
         ])));
 
-        let value1 = Value(value::Node::Sub(HashMap::from([
+        let value1 = Value(value::Node::Sub(HashMap::from_iter([
             (
                 "foo".to_string(),
                 Box::new(value::Node::Optional(Some(Box::new(value::Node::Int(0))))),
@@ -1218,12 +1213,12 @@ mod tests {
             init: true
         ";
 
-        let value0 = Value(value::Node::AnonMap(HashMap::from([
+        let value0 = Value(value::Node::AnonMap(HashMap::from_iter([
             (0, Box::new(value::Node::Bool(false))),
             (1, Box::new(value::Node::Bool(false))),
         ])));
 
-        let value1 = Value(value::Node::AnonMap(HashMap::from([
+        let value1 = Value(value::Node::AnonMap(HashMap::from_iter([
             (0, Box::new(value::Node::Bool(true))),
             (1, Box::new(value::Node::Bool(true))),
         ])));
@@ -1234,7 +1229,7 @@ mod tests {
         root_path_node_ctx.add_nodes_for(&value0.0);
         root_path_node_ctx.add_nodes_for(&value1.0);
 
-        let sut = make_crossover(&[0, 1]);
+        let sut = make_crossover(&[0, 1, 0, 1]);
 
         let result = sut.crossover(
             &spec,
@@ -1270,12 +1265,12 @@ mod tests {
             init: true
         ";
 
-        let value0 = Value(value::Node::AnonMap(HashMap::from([(
+        let value0 = Value(value::Node::AnonMap(HashMap::from_iter([(
             0,
             Box::new(value::Node::Bool(false)),
         )])));
 
-        let value1 = Value(value::Node::AnonMap(HashMap::from([(
+        let value1 = Value(value::Node::AnonMap(HashMap::from_iter([(
             1,
             Box::new(value::Node::Bool(true)),
         )])));
@@ -1291,8 +1286,8 @@ mod tests {
         let mut rng = make_rng();
         let sut = Crossover::new();
 
-        let mut sizes_min_size = HashSet::new();
-        let mut sizes_max_size = HashSet::new();
+        let mut sizes_min_size = HashSet::default();
+        let mut sizes_max_size = HashSet::default();
 
         let crossover_params = CrossoverParams {
             crossover_prob: 1.0,
@@ -1328,8 +1323,8 @@ mod tests {
             }
         }
 
-        assert_eq!(sizes_min_size, HashSet::from([1, 2]));
-        assert_eq!(sizes_max_size, HashSet::from([0, 1]));
+        assert_eq!(sizes_min_size, HashSet::from_iter([1, 2]));
+        assert_eq!(sizes_max_size, HashSet::from_iter([0, 1]));
     }
 
     #[test]
@@ -1342,9 +1337,9 @@ mod tests {
             init: true
         ";
 
-        let value0 = Value(value::Node::AnonMap(HashMap::from([])));
+        let value0 = Value(value::Node::AnonMap(HashMap::from_iter([])));
 
-        let value1 = Value(value::Node::AnonMap(HashMap::from([
+        let value1 = Value(value::Node::AnonMap(HashMap::from_iter([
             (0, Box::new(value::Node::Bool(true))),
             (1, Box::new(value::Node::Bool(true))),
         ])));
@@ -1481,12 +1476,12 @@ mod tests {
             init: true
         ";
 
-        let value0 = Value(value::Node::Sub(HashMap::from([
+        let value0 = Value(value::Node::Sub(HashMap::from_iter([
             ("foo".to_string(), Box::new(value::Node::Bool(false))),
             ("bar".to_string(), Box::new(value::Node::Bool(false))),
         ])));
 
-        let value1 = Value(value::Node::Sub(HashMap::from([
+        let value1 = Value(value::Node::Sub(HashMap::from_iter([
             ("foo".to_string(), Box::new(value::Node::Bool(true))),
             ("bar".to_string(), Box::new(value::Node::Bool(true))),
         ])));
@@ -1529,17 +1524,17 @@ mod tests {
                 init: true
         ";
 
-        let value0 = Value(value::Node::AnonMap(HashMap::from([(
+        let value0 = Value(value::Node::AnonMap(HashMap::from_iter([(
             0,
-            Box::new(value::Node::Sub(HashMap::from([
+            Box::new(value::Node::Sub(HashMap::from_iter([
                 ("foo".to_string(), Box::new(value::Node::Bool(false))),
                 ("bar".to_string(), Box::new(value::Node::Bool(false))),
             ]))),
         )])));
 
-        let value1 = Value(value::Node::AnonMap(HashMap::from([(
+        let value1 = Value(value::Node::AnonMap(HashMap::from_iter([(
             0,
-            Box::new(value::Node::Sub(HashMap::from([
+            Box::new(value::Node::Sub(HashMap::from_iter([
                 ("foo".to_string(), Box::new(value::Node::Bool(true))),
                 ("bar".to_string(), Box::new(value::Node::Bool(true))),
             ]))),
@@ -1583,17 +1578,17 @@ mod tests {
                 init: true
         ";
 
-        let value0 = Value(value::Node::AnonMap(HashMap::from([(
+        let value0 = Value(value::Node::AnonMap(HashMap::from_iter([(
             0,
-            Box::new(value::Node::Sub(HashMap::from([
+            Box::new(value::Node::Sub(HashMap::from_iter([
                 ("foo".to_string(), Box::new(value::Node::Bool(false))),
                 ("bar".to_string(), Box::new(value::Node::Bool(true))),
             ]))),
         )])));
 
-        let value1 = Value(value::Node::AnonMap(HashMap::from([(
+        let value1 = Value(value::Node::AnonMap(HashMap::from_iter([(
             0,
-            Box::new(value::Node::Sub(HashMap::from([
+            Box::new(value::Node::Sub(HashMap::from_iter([
                 ("foo".to_string(), Box::new(value::Node::Bool(true))),
                 ("bar".to_string(), Box::new(value::Node::Bool(false))),
             ]))),
@@ -1605,7 +1600,7 @@ mod tests {
         root_path_node_ctx.add_nodes_for(&value0.0);
         root_path_node_ctx.add_nodes_for(&value1.0);
 
-        let sut = make_crossover(&[0, 1]);
+        let sut = make_crossover(&[0, 1, 0, 1]);
 
         let result = sut.crossover(
             &spec,
@@ -1654,13 +1649,13 @@ mod tests {
                 scale: 1
         ";
 
-        let value0 = Value(value::Node::Sub(HashMap::from([
+        let value0 = Value(value::Node::Sub(HashMap::from_iter([
             (
                 "foo_sub".to_string(),
-                Box::new(value::Node::Sub(HashMap::from([
+                Box::new(value::Node::Sub(HashMap::from_iter([
                     (
                         "a".to_string(),
-                        Box::new(value::Node::AnonMap(HashMap::from([
+                        Box::new(value::Node::AnonMap(HashMap::from_iter([
                             (0, Box::new(value::Node::Bool(false))),
                             (1, Box::new(value::Node::Bool(true))),
                         ]))),
@@ -1678,13 +1673,13 @@ mod tests {
             ("bar".to_string(), Box::new(value::Node::Optional(None))),
         ])));
 
-        let value1 = Value(value::Node::Sub(HashMap::from([
+        let value1 = Value(value::Node::Sub(HashMap::from_iter([
             (
                 "foo_sub".to_string(),
-                Box::new(value::Node::Sub(HashMap::from([
+                Box::new(value::Node::Sub(HashMap::from_iter([
                     (
                         "a".to_string(),
-                        Box::new(value::Node::AnonMap(HashMap::from([
+                        Box::new(value::Node::AnonMap(HashMap::from_iter([
                             (0, Box::new(value::Node::Bool(true))),
                             (1, Box::new(value::Node::Bool(false))),
                         ]))),

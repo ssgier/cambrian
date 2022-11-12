@@ -1,7 +1,7 @@
+use crate::types::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use serde_json::value::Number;
-use std::collections::HashMap;
 use std::ops::Deref;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -65,16 +65,16 @@ impl Node {
 mod tests {
 
     use super::*;
-    use std::collections::HashMap;
+    use crate::types::HashMap;
 
     #[test]
     fn scenario() {
-        let value = Value(Node::Sub(HashMap::from([
+        let value = Value(Node::Sub(HashMap::from_iter([
             ("a".to_string(), Box::new(Node::Real(2.0))),
             ("b".to_string(), Box::new(Node::Int(1))),
             (
                 "c".to_string(),
-                Box::new(Node::AnonMap(HashMap::from([(
+                Box::new(Node::AnonMap(HashMap::from_iter([(
                     0,
                     Box::new(Node::Bool(true)),
                 )]))),

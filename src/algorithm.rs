@@ -422,7 +422,7 @@ mod tests {
     use crate::spec_util;
     use crate::value;
     use float_cmp::assert_approx_eq;
-    use std::collections::HashMap;
+    use crate::types::HashMap;
 
     const NEVER_CROSSOVER: CrossoverParams = CrossoverParams {
         crossover_prob: 0.0,
@@ -730,7 +730,7 @@ mod tests {
                 value: Value(value::Node::AnonMap(mapping)),
                 state: IndState::PendingEval(_),
                 ..
-            } if mapping == HashMap::from([
+            } if mapping == HashMap::from_iter([
                     (0, Box::new(value::Node::Bool(true))),
                     (1, Box::new(value::Node::Bool(true))),
             ])

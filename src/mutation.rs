@@ -8,7 +8,7 @@ use rand::rngs::StdRng;
 use rand::seq::IteratorRandom;
 use rand_distr::num_traits::ToPrimitive;
 use rand_distr::{Bernoulli, Cauchy, Distribution};
-use std::collections::HashMap;
+use crate::types::HashMap;
 
 pub fn mutate(
     spec: &spec::Spec,
@@ -440,7 +440,7 @@ mod tests {
     use float_cmp::approx_eq;
     use lazy_static::__Deref;
     use rand::SeedableRng;
-    use std::collections::HashSet;
+    use crate::types::HashSet;
     use tangram_finite::FiniteF64;
 
     use super::*;
@@ -624,14 +624,14 @@ mod tests {
         let mut rng = rng();
         const N: usize = 500;
 
-        let mut values = HashSet::new();
+        let mut values = HashSet::default();
 
         for _ in 0..N {
             let result = mutate_int(10, 10.0, Some(9), Some(11), &mutation_params, &mut rng);
             values.insert(result);
         }
 
-        assert_eq!(values, HashSet::from([9, 10, 11]));
+        assert_eq!(values, HashSet::from_iter([9, 10, 11]));
     }
 
     #[test]

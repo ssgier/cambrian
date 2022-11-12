@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-
+use crate::types::HashMap;
 use crate::value::Node::{self, *};
 use crate::value::Value;
 
@@ -84,13 +83,13 @@ pub fn extract_from_node<'a>(node: Option<&'a Node>, path: &[&str]) -> Option<&'
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use crate::types::HashMap;
 
     #[test]
     fn example() {
-        let value = Value(Sub(HashMap::from([(
+        let value = Value(Sub(HashMap::from_iter([(
             "foo".to_string(),
-            Box::new(AnonMap(HashMap::from([(5, Box::new(Int(6)))]))),
+            Box::new(AnonMap(HashMap::from_iter([(5, Box::new(Int(6)))]))),
         )])));
 
         assert_eq!(*extract_from_value(&value, &["foo", "5"]).unwrap(), Int(6));

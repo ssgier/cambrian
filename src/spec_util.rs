@@ -1,7 +1,7 @@
 use crate::common_util::format_path;
 use crate::error::Error;
 use crate::spec::{Node, Spec};
-use std::collections::{HashMap, HashSet};
+use crate::types::{HashMap, HashSet};
 
 pub fn from_yaml_str(yaml_str: &str) -> Result<Spec, Error> {
     let yaml_val: serde_yaml::Value = serde_yaml::from_str(yaml_str)?;
@@ -188,7 +188,7 @@ fn build_bool(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Erro
 }
 
 fn build_sub(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
-    let mut out_mapping = HashMap::new();
+    let mut out_mapping = HashMap::default();
     for (key, value) in mapping {
         match key.as_str() {
             Some(attribute_key) if !attribute_key.eq("type") => {
@@ -277,7 +277,7 @@ fn build_anon_map(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, 
 fn build_variant(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
     let init_variant_name = extract_string(mapping, "init", path, true)?.unwrap();
 
-    let mut out_mapping = HashMap::new();
+    let mut out_mapping = HashMap::default();
     for (key, value) in mapping {
         match key.as_str() {
             Some(attribute_key) if !attribute_key.eq("type") && !attribute_key.eq("init") => {
@@ -524,7 +524,7 @@ fn check_for_unexpected_attributes<const N: usize>(
     allowed_attributes: [&str; N],
     path: &[&str],
 ) -> Result<(), Error> {
-    let allowed_attributes = HashSet::from(allowed_attributes);
+    let allowed_attributes = HashSet::from_iter(allowed_attributes);
     for attribute_key in mapping.keys() {
         match attribute_key {
             serde_yaml::Value::String(attribute_name) => {
