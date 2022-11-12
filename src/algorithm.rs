@@ -25,7 +25,7 @@ const STATIC_PARAMS: StaticParams = StaticParams {
     meta_params_prob_mutation: 0.5,
     prob_reeval: 0.5,
     min_pop_size_for_reeval: 20,
-    max_pop_size: 1000,
+    max_pop_size: 100,
 };
 
 struct StaticParams {

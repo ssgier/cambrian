@@ -5,7 +5,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 // change if checksum is expected to change
-const CHECKSUM: u64 = 10473594234476064997;
+const CHECKSUM: u64 = 15057406331161146692;
 
 fn compute_hash(value: &serde_json::Value) -> u64 {
     let mut hasher = DefaultHasher::new();
