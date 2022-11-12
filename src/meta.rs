@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-
 use crate::error::Error;
 use async_channel::Receiver;
 use enum_display_derive::Display;

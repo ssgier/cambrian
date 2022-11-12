@@ -372,7 +372,8 @@ fn build_enum(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Erro
 fn build_optional(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
     check_for_unexpected_attributes(mapping, ["type", "initPresent", "valueType"], path)?;
 
-    let value_type = extract_value_type_attr_value(mapping, path)?;
+    let sub_path = [path, &["optional"]].concat();
+    let value_type = extract_value_type_attr_value(mapping, &sub_path)?;
     let init_present = extract_bool(mapping, "initPresent", path, true)?.unwrap();
 
     Ok(Node::Optional {

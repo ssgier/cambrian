@@ -328,12 +328,11 @@ fn mutate_optional(
 
     let value_option_to_mutate = match (flip, value) {
         (true, Some(_)) => None,
-        (false, value @ Some(_)) => value,
         (true, None) => {
             initial_value = Some(spec_node.initial_value());
             initial_value.as_ref()
         }
-        _ => unreachable!(),
+        (false, value) => value
     };
 
     value::Node::Optional(value_option_to_mutate.map(|value| {
