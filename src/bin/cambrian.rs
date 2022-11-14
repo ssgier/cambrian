@@ -15,7 +15,7 @@ use std::path::Path;
 use std::{ffi::OsString, fs, path::PathBuf, time::Duration};
 
 #[derive(Parser, Debug)]
-#[command(author, version, about = "Run asynchronous adaptive genetic algorithm", long_about = None)]
+#[command(author, version, about, long_about = None)]
 struct Args {
     #[arg(short, long)]
     verbose: bool,

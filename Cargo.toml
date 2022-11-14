@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["Sandro Sgier"]
 license = "MIT"
 description = """
-Asynchronous Adaptive Genetic Algorithm
+A Pragmatic Global Black-Box Optimizer
 """
 
 [dependencies]
