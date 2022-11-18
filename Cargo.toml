@@ -3,6 +3,8 @@ name = "cambrian"
 version = "0.1.0"
 edition = "2021"
 authors = ["Sandro Sgier"]
+repository = "https://github.com/ssgier/cambrian"
+documentation = "https://github.com/ssgier/cambrian/wiki"
 license = "MIT"
 description = """
 A Pragmatic Global Black-Box Optimizer
