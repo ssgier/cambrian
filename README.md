@@ -85,11 +85,15 @@ Here the `-t` option is an instruction to terminate as soon as an objective func
 
 ### Installation
 
-Binary packages will be provided soon, but currently the only way to install cambrian is to build it from source using Cargo (the Rust package manager and build system). For installing Cargo itself, please see:
+There are three ways to install cambrian:
+* build from source
+* install from crates.io
+* download from GitHub
 
-[Installation - The Cargo Book](https://doc.rust-lang.org/cargo/getting-started/installation.html)
+Building from source or installing from crates.io requires Cargo (the Rust package manager and build system) to be installed. For installing Cargo itself, please see [Cargo Installation](https://doc.rust-lang.org/cargo/getting-started/installation.html)
 
-Once Cargo is installed, clone the repository from GitHub, then build and install it using the following sequence of commands:
+#### Build from Source
+Clone the repository from GitHub, then build and install it using the following sequence of commands:
 
 ```
 git clone git@github.com:ssgier/cambrian.git
@@ -100,6 +104,17 @@ cargo install --path .
 
 After running these commands, cambrian should have been installed to `~/.cargo/bin`. Add the directory to the PATH variable if needed.
 
+#### Install from crates.io
+```
+cargo install cambrian
+```
+
+#### Download from GitHub
+Go to [releases](https://github.com/ssgier/cambrian/releases) and download the latest archive (cambrian-v0.1.0-x86_64-unknown-linux-musl.tar.gz). Extract it:
+```
+tar xvzf cambrian-v0.1.0-x86_64-unknown-linux-musl.tar.gz
+```
+This will extract a directory containing the cambrian executable. Place the executable in a directory of choice and optionally add that directory to the PATH environment variable.
 
 ### Documentation
 
