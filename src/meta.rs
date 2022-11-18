@@ -94,7 +94,7 @@ pub struct AlgoConfigBuilder {
 
 const DEFAULT_IND_SAMPLE_SIZE: usize = 1;
 
-const DEFAULT_QUANTILE: f64 = 1.0;
+const DEFAULT_QUANTILE: f64 = 0.5;
 
 impl Default for AlgoConfigBuilder {
     fn default() -> Self {
