@@ -17,47 +17,60 @@ use std::{ffi::OsString, fs, path::PathBuf, time::Duration};
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(short, long)]
-    verbose: bool,
+    obj_func_program: OsString,
+    obj_func_program_args: Vec<OsString>,
 
-    #[arg(short, long)]
-    force: bool,
-
-    #[arg(long)]
-    no_signal_result: bool,
-
-    #[arg(short = 'n', long)]
-    max_obj_func_eval: Option<usize>,
-
-    #[arg(short, long)]
-    target_obj_func_val: Option<f64>,
-
-    #[arg(long)]
-    terminate_after: Option<String>,
-
-    #[arg(long)]
-    num_concurrent: Option<usize>,
-
+    /// Set path of the spec file
     #[arg(short = 's', long)]
     spec_file: PathBuf,
 
+    /// Set path of the output directory
     #[arg(short, long)]
     out_dir: Option<PathBuf>,
 
+    /// Overwrite output directory if it already exists
+    #[arg(short, long)]
+    force: bool,
+
+    /// Set maximum number of objective function evaluations to perform
+    #[arg(short = 'n', long)]
+    max_obj_func_eval: Option<usize>,
+
+    /// Set target objective function value
+    #[arg(short, long)]
+    target_obj_func_val: Option<f64>,
+
+    /// Set duration after which to terminate the optimization
+    #[arg(long)]
+    terminate_after: Option<String>,
+
+    /// Disable graceful termination on SIGINT
+    #[arg(long)]
+    no_signal_result: bool,
+
+    /// Set number of objective function processes to run concurrently
+    #[arg(long)]
+    num_concurrent: Option<usize>,
+
+    /// Set a timeout for individual objective function evaluations
     #[arg(short = 'k', long)]
     kill_obj_func_after: Option<String>,
 
+    /// Sample size for stochastic mode
     #[arg(long)]
     sample_size: Option<usize>,
 
+    /// Quantile for stochastic mode
     #[arg(long)]
     quantile: Option<f64>,
 
+    /// Explicit initial guess
     #[arg(long)]
     initial_guess: Option<String>,
 
-    obj_func_program: OsString,
-    obj_func_program_args: Vec<OsString>,
+    /// Enable logging
+    #[arg(short, long)]
+    verbose: bool,
 }
 
 fn init_logger(args: &Args) {
