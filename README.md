@@ -2,19 +2,17 @@
 
 ## A Pragmatic Global Black-Box Optimizer
 
-- **Cambrian is an out-of-the-box command line application**. No configuration is needed apart from the objective function definition.
+- Cambrian is a tool for global black-box optimization. Its optimization algorithm falls under the category of **Adaptive Genetic Algorithms**. User documentation can be found [here](https://github.com/ssgier/cambrian/wiki).
+
+- Comes in form of an **out-of-the-box command line application**. No configuration is needed apart from the objective function definition.
   
-- The objective function is provided by the user in form of a stand-alone program that reads and writes JSON. Usage is therefore **programming language agnostic.**
+- The objective function implementation is provided by the user in form of a stand-alone program that reads and writes JSON. Usage is therefore **programming language agnostic.**
   
 - The parameter space is provided by the user in form of a YAML file. The format is **highly expressive**: It can represent parameter spaces ranging from simple real-valued vectors to **hierarchical data structures with resizing parts.**
   
 - Support for parallelism.
   
-- Implemented as an adaptive genetic algorithm.
-  
 - Linux is currently the only supported OS.
-
-- Documentation can be found [here](https://github.com/ssgier/cambrian/wiki).
   
 
 ### Example Use Cases:
