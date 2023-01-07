@@ -1,6 +1,6 @@
-use async_trait::async_trait;
 use crate::error::Error;
 use async_channel::Receiver;
+use async_trait::async_trait;
 use enum_display_derive::Display;
 use std::fmt::Display;
 
@@ -59,6 +59,7 @@ pub trait AsyncObjectiveFunction: Sync {
         &self,
         value: serde_json::Value,
         abort_signal_recv: Receiver<()>,
+        seed: u64,
     ) -> Result<Option<f64>, Error>;
 }
 

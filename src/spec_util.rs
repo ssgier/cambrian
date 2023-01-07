@@ -1,3 +1,5 @@
+use itertools::Itertools;
+
 use crate::common_util::format_path;
 use crate::error::Error;
 use crate::spec::{Node, Spec};
@@ -6,7 +8,11 @@ use crate::types::{HashMap, HashSet};
 pub fn from_yaml_str(yaml_str: &str) -> Result<Spec, Error> {
     let yaml_val: serde_yaml::Value = serde_yaml::from_str(yaml_str)?;
     let root_path = [];
-    Ok(Spec(build_node(&yaml_val, &root_path)?))
+    Ok(Spec(build_node(
+        &yaml_val,
+        &HashMap::default(),
+        &root_path,
+    )?))
 }
 
 pub fn is_leaf(spec_node: &Node) -> bool {
@@ -22,7 +28,15 @@ pub fn is_leaf(spec_node: &Node) -> bool {
     }
 }
 
-fn build_node(yaml_val: &serde_yaml::Value, path: &[&str]) -> Result<Node, Error> {
+const BUILT_IN_TYPE_NAMES: &'static [&'static str] = &[
+    "real", "int", "bool", "sub", "anon map", "variant", "enum", "optional", "const",
+];
+
+fn build_node(
+    yaml_val: &serde_yaml::Value,
+    type_defs: &HashMap<String, Node>,
+    path: &[&str],
+) -> Result<Node, Error> {
     let mapping = match yaml_val {
         serde_yaml::Value::Mapping(mapping) => mapping,
         _ => {
@@ -39,16 +53,22 @@ fn build_node(yaml_val: &serde_yaml::Value, path: &[&str]) -> Result<Node, Error
         "real" => build_real(mapping, path),
         "int" => build_int(mapping, path),
         "bool" => build_bool(mapping, path),
-        "sub" => build_sub(mapping, path),
-        "anon map" => build_anon_map(mapping, path),
-        "variant" => build_variant(mapping, path),
+        "sub" => build_sub(mapping, type_defs, path),
+        "anon map" => build_anon_map(mapping, type_defs, path),
+        "variant" => build_variant(mapping, type_defs, path),
         "enum" => build_enum(mapping, path),
-        "optional" => build_optional(mapping, path),
+        "optional" => build_optional(mapping, type_defs, path),
         "const" => build_const(mapping, path),
-        _ => Err(Error::UnknownTypeName {
-            path_hint: format_path(path),
-            unknown_type_name: type_name.to_string(),
-        }),
+        type_name => match type_defs.get(type_name) {
+            Some(node) => {
+                check_for_unexpected_attributes(mapping, ["type"], path)?;
+                Ok(node.clone())
+            }
+            None => Err(Error::UnknownTypeName {
+                path_hint: format_path(path),
+                unknown_type_name: type_name.to_owned(),
+            }),
+        },
     }
 }
 
@@ -187,15 +207,31 @@ fn build_bool(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Erro
     })
 }
 
-fn build_sub(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
+fn build_sub(
+    mapping: &serde_yaml::Mapping,
+    type_defs: &HashMap<String, Node>,
+    path: &[&str],
+) -> Result<Node, Error> {
     let mut out_mapping = HashMap::default();
+
+    let mut sub_type_defs = type_defs.clone();
     for (key, value) in mapping {
         match key.as_str() {
-            Some(attribute_key) if !attribute_key.eq("type") => {
+            Some(attribute_key) if attribute_key.starts_with("typeDef ") => {
+                let type_name = attribute_key.strip_prefix("typeDef ").unwrap();
+
+                if BUILT_IN_TYPE_NAMES.iter().contains(&type_name) {
+                    return Err(Error::IllegalTypeDefName {
+                        path_hint: format_path(path),
+                        type_def_name: type_name.to_string(),
+                    });
+                }
+
                 let path_of_sub = [path, &[attribute_key]].concat();
-                out_mapping.insert(
-                    attribute_key.to_string(),
-                    Box::new(build_node(value, &path_of_sub)?),
+
+                sub_type_defs.insert(
+                    type_name.to_string(),
+                    build_node(value, &sub_type_defs, &path_of_sub)?,
                 );
             }
             None => {
@@ -203,6 +239,21 @@ fn build_sub(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error
                     path_hint: format_path(path),
                     formatted_attribute_key: format_attribute_key(key),
                 })
+            }
+            _ => (),
+        }
+    }
+
+    for (key, value) in mapping {
+        match key.as_str() {
+            Some(attribute_key)
+                if !attribute_key.eq("type") && !attribute_key.starts_with("typeDef") =>
+            {
+                let path_of_sub = [path, &[attribute_key]].concat();
+                out_mapping.insert(
+                    attribute_key.to_string(),
+                    Box::new(build_node(value, &sub_type_defs, &path_of_sub)?),
+                );
             }
             _ => (),
         }
@@ -219,10 +270,11 @@ fn build_sub(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error
 
 fn extract_value_type_attr_value(
     mapping: &serde_yaml::Mapping,
+    type_defs: &HashMap<String, Node>,
     path: &[&str],
 ) -> Result<Box<Node>, Error> {
     return match mapping.get("valueType") {
-        Some(value) => Ok(Box::new(build_node(value, path)?)),
+        Some(value) => Ok(Box::new(build_node(value, type_defs, path)?)),
         None => {
             return Err(Error::MandatoryAttributeMissing {
                 path_hint: format_path(path),
@@ -232,14 +284,18 @@ fn extract_value_type_attr_value(
     };
 }
 
-fn build_anon_map(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
+fn build_anon_map(
+    mapping: &serde_yaml::Mapping,
+    type_defs: &HashMap<String, Node>,
+    path: &[&str],
+) -> Result<Node, Error> {
     check_for_unexpected_attributes(
         mapping,
         ["type", "initSize", "minSize", "maxSize", "valueType"],
         path,
     )?;
 
-    let value_type = extract_value_type_attr_value(mapping, path)?;
+    let value_type = extract_value_type_attr_value(mapping, type_defs, path)?;
 
     let min_size = extract_usize_attribute_value(mapping, "minSize", path, false)?;
     let max_size = extract_usize_attribute_value(mapping, "maxSize", path, false)?;
@@ -274,7 +330,11 @@ fn build_anon_map(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, 
     }
 }
 
-fn build_variant(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
+fn build_variant(
+    mapping: &serde_yaml::Mapping,
+    type_defs: &HashMap<String, Node>,
+    path: &[&str],
+) -> Result<Node, Error> {
     let init_variant_name = extract_string(mapping, "init", path, true)?.unwrap();
 
     let mut out_mapping = HashMap::default();
@@ -284,7 +344,7 @@ fn build_variant(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, E
                 let path_of_sub = [path, &[attribute_key]].concat();
                 out_mapping.insert(
                     attribute_key.to_string(),
-                    Box::new(build_node(value, &path_of_sub)?),
+                    Box::new(build_node(value, type_defs, &path_of_sub)?),
                 );
             }
             None => {
@@ -369,11 +429,15 @@ fn build_enum(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Erro
     })
 }
 
-fn build_optional(mapping: &serde_yaml::Mapping, path: &[&str]) -> Result<Node, Error> {
+fn build_optional(
+    mapping: &serde_yaml::Mapping,
+    type_defs: &HashMap<String, Node>,
+    path: &[&str],
+) -> Result<Node, Error> {
     check_for_unexpected_attributes(mapping, ["type", "initPresent", "valueType"], path)?;
 
     let sub_path = [path, &["optional"]].concat();
-    let value_type = extract_value_type_attr_value(mapping, &sub_path)?;
+    let value_type = extract_value_type_attr_value(mapping, type_defs, &sub_path)?;
     let init_present = extract_bool(mapping, "initPresent", path, true)?.unwrap();
 
     Ok(Node::Optional {
@@ -1225,6 +1289,99 @@ mod tests {
         from_yaml_str(yaml_str),
             Err(Error::UnknownTypeName { path_hint, .. })
             if path_hint == "foo"
+        ));
+    }
+
+    #[test]
+    fn type_defs() {
+        let yaml_str = "
+        typeDef foo:
+            type: bool
+            init: false
+        typeDef bar:
+            a:
+                type: bool
+                init: true
+            b:
+                type: int
+                init: 1
+                scale: 1.0
+        x:
+            type: foo
+        y:
+            h:
+                type: foo
+            i:
+                type: bar
+        ";
+
+        let equivalent_yaml_str = "
+        x:
+            type: bool
+            init: false
+        y:
+            h:
+                type: bool
+                init: false
+            i:
+                a:
+                    type: bool
+                    init: true
+                b:
+                    type: int
+                    init: 1
+                    scale: 1.0
+        ";
+
+        let spec_with_type_def = from_yaml_str(yaml_str).unwrap().0;
+        let expected_spec = from_yaml_str(equivalent_yaml_str).unwrap().0;
+
+        assert_eq!(spec_with_type_def, expected_spec);
+    }
+
+    #[test]
+    fn type_def_shadowing() {
+        let yaml_str = "
+        typeDef foo:
+            type: bool
+            init: false
+        bar:
+            typeDef foo:
+                type: int
+                init: 1
+                scale: 1.0
+            baz:
+                type: foo
+
+        ";
+
+        let equivalent_yaml_str = "
+        bar:
+            baz:
+                type: int
+                init: 1
+                scale: 1.0
+        ";
+
+        let spec_with_type_def = from_yaml_str(yaml_str).unwrap().0;
+        let expected_spec = from_yaml_str(equivalent_yaml_str).unwrap().0;
+
+        assert_eq!(spec_with_type_def, expected_spec);
+    }
+
+    #[test]
+    fn illegal_type_def_name() {
+        let yaml_str = "
+        foo:
+            typeDef int:
+                type: bool
+                init: false
+        ";
+
+        assert!(matches!(
+        from_yaml_str(yaml_str),
+            Err(Error::IllegalTypeDefName { path_hint, type_def_name })
+            if path_hint == "foo" && type_def_name == "int"
         ));
     }
 }

@@ -107,6 +107,15 @@ pub enum Error {
     },
     #[error("at path {path_hint:?}: scale must be strictly positive")]
     ScaleMustBeStrictlyPositive { path_hint: String },
+    #[error(
+        "at path {}: typeDef {}: must not use name of built-in type as name of user defined type",
+        path_hint,
+        type_def_name
+    )]
+    IllegalTypeDefName {
+        path_hint: String,
+        type_def_name: String,
+    },
     #[error("received non-finite objective function value")]
     ObjFuncValMustBeFinite,
     #[error("no successfully evaluated individuals available")]

@@ -89,11 +89,13 @@ impl AsyncObjectiveFunction for ObjFuncProcessDef {
         &self,
         value: serde_json::Value,
         abort_sig_rx: async_channel::Receiver<()>,
+        seed: u64,
     ) -> Result<Option<f64>, Error> {
         let json_arg: OsString = serde_json::to_string(&value).unwrap().into();
         let child = Command::new(&self.program)
             .args(&self.args)
             .arg(&json_arg)
+            .arg(seed.to_string())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .group_spawn()
