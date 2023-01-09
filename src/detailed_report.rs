@@ -7,12 +7,13 @@ pub struct DetailedReportItem {
     pub eval_time: Duration,
     pub meta_params_used: Option<MetaParamsWrapper>,
     pub input_val: serde_json::Value,
+    pub seed: u64,
     pub obj_func_val: Option<f64>,
 }
 
 impl DetailedReportItem {
     pub fn get_csv_header_row() -> &'static str {
-        "individualId;evalTimeSeconds;metaParamsSource;crossoverProb;selectionPressure;mutationProb;mutationScale;inputVal;objFuncVal\n"
+        "individualId;evalTimeSeconds;metaParamsSource;crossoverProb;selectionPressure;mutationProb;mutationScale;inputVal;seed;objFuncVal\n"
     }
 
     pub fn to_csv_row(&self) -> String {
@@ -54,7 +55,7 @@ impl DetailedReportItem {
             .unwrap_or_else(|| "".to_string());
 
         format!(
-            "{};{};{};{};{};{};{};{};{}\n",
+            "{};{};{};{};{};{};{};{};{};{}\n",
             self.individual_id,
             self.eval_time.as_secs_f64(),
             meta_params_source,
@@ -63,6 +64,7 @@ impl DetailedReportItem {
             mutation_prob,
             mutation_scale,
             input_val,
+            self.seed,
             obj_func_val,
         )
     }
