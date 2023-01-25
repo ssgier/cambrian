@@ -40,7 +40,6 @@ struct StaticParams {
 pub struct AlgoContext {
     spec: Spec,
     individual_sample_size: usize,
-    obj_func_val_quantile: f64,
 
     individuals: BTreeMap<OrderingKey, IndContext>,
     initial_value: Value,
@@ -57,14 +56,12 @@ impl AlgoContext {
     pub fn new(
         spec: Spec,
         individual_sample_size: usize,
-        obj_func_val_quantile: f64,
         meta_params_override: Option<(CrossoverParams, MutationParams)>,
         explicit_init_value: Option<Value>,
     ) -> Self {
         Self::new_impl(
             spec,
             individual_sample_size,
-            obj_func_val_quantile,
             meta_params_override,
             explicit_init_value,
             STATIC_PARAMS,
@@ -74,7 +71,6 @@ impl AlgoContext {
     fn new_impl(
         spec: Spec,
         individual_sample_size: usize,
-        obj_func_val_quantile: f64,
         meta_params_override: Option<(CrossoverParams, MutationParams)>,
         explicit_init_value: Option<Value>,
         static_params: StaticParams,
@@ -87,7 +83,6 @@ impl AlgoContext {
             initial_value,
             spec,
             individual_sample_size,
-            obj_func_val_quantile,
             individuals: BTreeMap::default(),
             initial_value_used: false,
             crossover: Crossover::new(),
@@ -138,16 +133,9 @@ impl IndContext {
     }
 }
 
-fn summary_obj_func_val(obj_func_vals: &[FiniteF64], quantile: f64) -> FiniteF64 {
-    let n = obj_func_vals.len().to_f64().unwrap();
-    let loc_target = (n - 1.0) * quantile;
-    let left_idx_f64 = loc_target.floor();
-    let left_idx = left_idx_f64.to_usize().unwrap();
-    let right_idx = loc_target.ceil().to_usize().unwrap();
-    let left_val = obj_func_vals[left_idx].get();
-    let right_val = obj_func_vals[right_idx].get();
-    let result = left_val + (loc_target - left_idx_f64) * (right_val - left_val);
-    FiniteF64::new(result).unwrap()
+fn summary_obj_func_val(obj_func_vals: &[FiniteF64]) -> FiniteF64 {
+    let mean = obj_func_vals.iter().map(|val| val.get()).sum::<f64>() / obj_func_vals.len() as f64;
+    FiniteF64::new(mean).unwrap()
 }
 
 impl AlgoContext {
@@ -307,7 +295,7 @@ impl AlgoContext {
     fn summary_obj_func_val(&self, ind_state: &IndState) -> FiniteF64 {
         match *ind_state {
             IndState::PendingEval(ref obj_func_vals) | IndState::Ready(ref obj_func_vals) => {
-                summary_obj_func_val(obj_func_vals, self.obj_func_val_quantile)
+                summary_obj_func_val(obj_func_vals)
             }
             IndState::Final(obj_func_val) => obj_func_val,
         }
@@ -318,8 +306,7 @@ impl AlgoContext {
             obj_func_vals.push(obj_func_val);
 
             if obj_func_vals.len() == self.individual_sample_size {
-                let summary_obj_func_val =
-                    summary_obj_func_val(&obj_func_vals, self.obj_func_val_quantile);
+                let summary_obj_func_val = summary_obj_func_val(&obj_func_vals);
 
                 info!(
                     "Individual {}: completed sample, final objective function value: {}",
@@ -348,7 +335,7 @@ impl AlgoContext {
             .take(num_to_take)
             .map(|ctx| match ctx.state {
                 IndState::PendingEval(ref obj_func_vals) | IndState::Ready(ref obj_func_vals) => {
-                    summary_obj_func_val(obj_func_vals, self.obj_func_val_quantile).get()
+                    summary_obj_func_val(obj_func_vals).get()
                 }
                 IndState::Final(obj_func_val) => obj_func_val.get(),
             })
@@ -420,9 +407,11 @@ mod tests {
     use super::*;
     use crate::spec;
     use crate::spec_util;
+    use crate::types::HashMap;
     use crate::value;
     use float_cmp::assert_approx_eq;
-    use crate::types::HashMap;
+    use float_cmp::ApproxEq;
+    use float_cmp::F64Margin;
 
     const NEVER_CROSSOVER: CrossoverParams = CrossoverParams {
         crossover_prob: 0.0,
@@ -440,7 +429,6 @@ mod tests {
         AlgoContext::new(
             TRIVIAL_SPEC,
             1,
-            1.0,
             Some((NEVER_CROSSOVER, ALWAYS_MUTATE)),
             None,
         )
@@ -534,7 +522,6 @@ mod tests {
         let mut sut = AlgoContext::new_impl(
             TRIVIAL_SPEC,
             1,
-            1.0,
             Some((NEVER_CROSSOVER, ALWAYS_MUTATE)),
             None,
             static_params,
@@ -565,7 +552,6 @@ mod tests {
         let mut sut = AlgoContext::new_impl(
             TRIVIAL_SPEC,
             sample_size,
-            1.0,
             Some((NEVER_CROSSOVER, ALWAYS_MUTATE)),
             None,
             static_params,
@@ -616,9 +602,9 @@ mod tests {
             IndContext {
                 id: 0,
                 value: Value(value::Node::Bool(true)),
-                state: IndState::Final(obj_func_vals),
+                state: IndState::Final(obj_func_val),
                 ..
-            } if obj_func_vals == FiniteF64::new(0.1).unwrap()
+            } if obj_func_val.approx_eq(0.15, F64Margin::default())
         ));
         assert_eq!(sut.individuals.len(), 2);
 
@@ -662,39 +648,20 @@ mod tests {
     }
 
     #[test]
-    fn quantile_single_value() {
+    fn summary_obj_func_val_single_value() {
         let values = vec![FiniteF64::new(1.0).unwrap()];
-        assert_eq!(summary_obj_func_val(&values, 0.0).get(), 1.0);
-        assert_eq!(summary_obj_func_val(&values, 0.5).get(), 1.0);
-        assert_eq!(summary_obj_func_val(&values, 1.0).get(), 1.0);
+        assert_eq!(summary_obj_func_val(&values).get(), 1.0);
     }
 
     #[test]
-    fn quantile_uneven_length() {
-        let values = vec![0.1, 1.1, 2.1, 3.1, 4.1];
+    fn summary_obj_func_val_multiple_values() {
+        let values = vec![0.1, 1.1, 3.1, 4.1];
         let values: Vec<FiniteF64> = values
             .into_iter()
             .map(|val| FiniteF64::new(val).unwrap())
             .collect();
 
-        assert_approx_eq!(f64, summary_obj_func_val(&values, 0.0).get(), 0.1);
-        assert_approx_eq!(f64, summary_obj_func_val(&values, 0.25).get(), 1.1);
-        assert_approx_eq!(f64, summary_obj_func_val(&values, 0.375).get(), 1.6);
-        assert_approx_eq!(f64, summary_obj_func_val(&values, 0.5).get(), 2.1);
-        assert_approx_eq!(f64, summary_obj_func_val(&values, 1.0).get(), 4.1);
-    }
-
-    #[test]
-    fn quantile_even_length() {
-        let values = vec![0.1, 1.1, 2.1, 3.1];
-        let values: Vec<FiniteF64> = values
-            .into_iter()
-            .map(|val| FiniteF64::new(val).unwrap())
-            .collect();
-
-        assert_approx_eq!(f64, summary_obj_func_val(&values, 0.0).get(), 0.1);
-        assert_approx_eq!(f64, summary_obj_func_val(&values, 0.5).get(), 1.6);
-        assert_approx_eq!(f64, summary_obj_func_val(&values, 1.0).get(), 3.1);
+        assert_approx_eq!(f64, summary_obj_func_val(&values).get(), 2.1);
     }
 
     #[test]
@@ -711,7 +678,6 @@ mod tests {
         let mut sut = AlgoContext::new_impl(
             spec_util::from_yaml_str(spec_str).unwrap(),
             1,
-            1.0,
             Some((NEVER_CROSSOVER, ALWAYS_MUTATE)),
             None,
             STATIC_PARAMS,

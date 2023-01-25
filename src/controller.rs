@@ -45,7 +45,6 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
     let mut algo_ctx = AlgoContext::new(
         spec,
         algo_config.individual_sample_size,
-        algo_config.obj_func_val_quantile,
         None,
         explicit_init_value,
     );

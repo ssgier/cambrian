@@ -49,7 +49,6 @@ pub struct MutationParams {
 #[derive(Debug, Clone)]
 pub struct AlgoConfig {
     pub individual_sample_size: usize,
-    pub obj_func_val_quantile: f64,
     pub num_concurrent: usize,
 }
 
@@ -89,13 +88,10 @@ where
 
 pub struct AlgoConfigBuilder {
     individual_sample_size: Option<usize>,
-    obj_func_val_quantile: Option<f64>,
     num_concurrent: Option<usize>,
 }
 
 const DEFAULT_IND_SAMPLE_SIZE: usize = 1;
-
-const DEFAULT_QUANTILE: f64 = 0.5;
 
 impl Default for AlgoConfigBuilder {
     fn default() -> Self {
@@ -109,11 +105,6 @@ impl AlgoConfigBuilder {
         self
     }
 
-    pub fn obj_func_val_quantile(&mut self, obj_func_val_quantile: f64) -> &mut Self {
-        self.obj_func_val_quantile = Some(obj_func_val_quantile);
-        self
-    }
-
     pub fn num_concurrent(&mut self, num_concurrent: usize) -> &mut Self {
         self.num_concurrent = Some(num_concurrent);
         self
@@ -122,7 +113,6 @@ impl AlgoConfigBuilder {
     pub fn new() -> Self {
         Self {
             individual_sample_size: None,
-            obj_func_val_quantile: None,
             num_concurrent: None,
         }
     }
@@ -132,13 +122,8 @@ impl AlgoConfigBuilder {
             individual_sample_size: self
                 .individual_sample_size
                 .unwrap_or(DEFAULT_IND_SAMPLE_SIZE),
-            obj_func_val_quantile: self.obj_func_val_quantile.unwrap_or(DEFAULT_QUANTILE),
             num_concurrent: self.num_concurrent.unwrap_or(1),
         };
-
-        if algo_config.obj_func_val_quantile < 0.0 || algo_config.obj_func_val_quantile > 1.0 {
-            return Err(Error::InvalidQuantile);
-        }
 
         if algo_config.individual_sample_size == 0 {
             return Err(Error::ZeroSampleSize);

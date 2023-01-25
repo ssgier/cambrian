@@ -60,6 +60,7 @@ struct ObjFuncChildResult {
 async fn get_child_result(
     child: AsyncGroupChild,
     obj_func_arg: &OsStr,
+    seed: u64,
 ) -> Result<Option<f64>, Error> {
     let output = child.wait_with_output().await?;
 
@@ -67,6 +68,7 @@ async fn get_child_result(
         let result: ObjFuncChildResult = serde_json::from_slice(&output.stdout).map_err(|_| {
             Error::ObjFuncProcInvalidOutput(ProcOutputWithObjFuncArg::new(
                 obj_func_arg.to_owned(),
+                seed,
                 output,
             ))
         })?;
@@ -78,6 +80,7 @@ async fn get_child_result(
         );
         Err(Error::ObjFuncProcFailed(ProcOutputWithObjFuncArg::new(
             obj_func_arg.to_owned(),
+            seed,
             output,
         )))
     }
@@ -103,7 +106,7 @@ impl AsyncObjectiveFunction for ObjFuncProcessDef {
 
         let unreaped_pgid = child.id().map(|pgid| Pid::from_raw(pgid as i32));
 
-        let child_result = get_child_result(child, &json_arg);
+        let child_result = get_child_result(child, &json_arg, seed);
 
         let mut timeout_fut = if let Some(kill_after_duration) = self.kill_obj_func_after {
             let timeout_fut = Box::pin(tokio::time::sleep(kill_after_duration));

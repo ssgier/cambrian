@@ -145,8 +145,6 @@ pub enum Error {
     #[error("failed to reap child process group. PID: {}", .0)]
     FailedToReapChildProcessGroup(Pid),
     #[error("quantile must be in [0, 1]")]
-    InvalidQuantile,
-    #[error("sample size must be strictly positive")]
     ZeroSampleSize,
     #[error("number of concurrent objective function evaluations must be strictly positive")]
     ZeroNumConcurrent,
@@ -160,13 +158,15 @@ pub enum Error {
 #[derive(Debug)]
 pub struct ProcOutputWithObjFuncArg {
     pub obj_func_arg: OsString,
+    pub seed: u64,
     pub output: Output,
 }
 
 impl ProcOutputWithObjFuncArg {
-    pub fn new(obj_func_arg: OsString, output: Output) -> Self {
+    pub fn new(obj_func_arg: OsString, seed: u64, output: Output) -> Self {
         Self {
             obj_func_arg,
+            seed,
             output,
         }
     }

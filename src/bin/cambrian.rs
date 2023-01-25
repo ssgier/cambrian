@@ -10,7 +10,6 @@ use clap::Parser;
 use log::{info, LevelFilter};
 use parse_duration::parse::parse;
 use std::fmt::Write;
-use std::os::unix::prelude::OsStrExt;
 use std::path::Path;
 use std::{ffi::OsString, fs, path::PathBuf, time::Duration};
 
@@ -60,10 +59,6 @@ struct Args {
     #[arg(long)]
     sample_size: Option<usize>,
 
-    /// Quantile for stochastic mode
-    #[arg(long)]
-    quantile: Option<f64>,
-
     /// Explicit initial guess
     #[arg(long)]
     initial_guess: Option<String>,
@@ -108,10 +103,6 @@ fn make_algo_conf(args: &Args) -> Result<AlgoConfig> {
 
     if let Some(sample_size) = args.sample_size {
         algo_config_builder.individual_sample_size(sample_size);
-    }
-
-    if let Some(quantile) = args.quantile {
-        algo_config_builder.obj_func_val_quantile(quantile);
     }
 
     algo_config_builder.build().context("invalid input")
@@ -190,8 +181,13 @@ fn dump_diagnostic_files(
 ) -> Result<()> {
     write_file(
         &dump_info.failed_obj_func_arg_file_path,
-        "failed objective function argument",
-        proc_info.obj_func_arg.as_bytes(),
+        "failed objective function arguments",
+        format!(
+            "{:?} {}",
+            proc_info.obj_func_arg.as_os_str(),
+            proc_info.seed
+        )
+        .as_bytes(),
     )?;
 
     write_file(
@@ -293,7 +289,7 @@ fn provide_context(
             write!(
                 &mut descr,
                 r"
-Argument passed to failed objective function process can be found in file: {}",
+Arguments passed to failed objective function process can be found in file: {}",
                 file_info.failed_obj_func_arg_file_path.display()
             )
             .unwrap();
