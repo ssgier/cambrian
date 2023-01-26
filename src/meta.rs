@@ -1,5 +1,5 @@
 use crate::error::Error;
-use async_channel::Receiver;
+use async_broadcast::Receiver;
 use async_trait::async_trait;
 use enum_display_derive::Display;
 use std::fmt::Display;

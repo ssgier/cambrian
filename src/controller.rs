@@ -34,7 +34,7 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
 
     let mut seed_mgr = SeedManager::new();
 
-    let (abort_signal_sender, out_abort_signal_recv) = async_channel::unbounded::<()>();
+    let (abort_signal_sender, out_abort_signal_recv) = async_broadcast::broadcast::<()>(1);
     let mut count_accepted = 0usize;
     let mut count_rejected = 0usize;
 
@@ -109,9 +109,9 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
                             (false, false)
                         };
 
-                        if abort_signal_received || max_num_eval_completed {
+                        if max_num_eval_completed {
                             break;
-                        } else if !max_num_eval_pushed {
+                        } else if !max_num_eval_pushed && !abort_signal_received {
                             let new_individual = algo_ctx.next_individual();
                             let eval_future = evaluate_individual(new_individual, &obj_func, out_abort_signal_recv.clone(),
                                 seed_mgr.next_seed());
@@ -122,8 +122,10 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
                 }
             }
             _ = &mut in_abort_signal_recv => {
-                abort_signal_received = true;
-                abort_signal_sender.send(()).await.ok();
+                if !abort_signal_received {
+                    abort_signal_received = true;
+                    abort_signal_sender.broadcast(()).await.ok();
+                }
             }
         }
     }
@@ -152,13 +154,13 @@ struct EvaluatedIndividual {
 async fn evaluate_individual<F: AsyncObjectiveFunction>(
     individual: IndContext,
     obj_func: &F,
-    abort_signal_recv: async_channel::Receiver<()>,
+    abort_signal_recv: async_broadcast::Receiver<()>,
     seed: u64,
 ) -> Result<EvaluatedIndividual, Error> {
     let start_time = Instant::now();
 
     let eval_result = obj_func
-        .evaluate(individual.value.to_json(), abort_signal_recv.clone(), seed)
+        .evaluate(individual.value.to_json(), abort_signal_recv, seed)
         .await?;
 
     let eval_time = start_time.elapsed();

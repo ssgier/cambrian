@@ -8,7 +8,6 @@ use crate::result::FinalReport;
 use crate::termination;
 use crate::termination::TerminationCriterion;
 use crate::{meta::ObjectiveFunction, spec::Spec};
-use async_channel;
 use async_trait::async_trait;
 use ctrlc;
 use futures::channel::mpsc;
@@ -231,7 +230,7 @@ where
     async fn evaluate(
         &self,
         value: serde_json::Value,
-        abort_sig_recv: async_channel::Receiver<()>,
+        mut abort_sig_recv: async_broadcast::Receiver<()>,
         _seed: u64,
     ) -> Result<Option<f64>, Error> {
         let obj_func = self.obj_func.clone();

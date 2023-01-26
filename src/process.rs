@@ -1,6 +1,5 @@
 use crate::error::ProcOutputWithObjFuncArg;
 use crate::{error::Error, meta::AsyncObjectiveFunction};
-use async_channel;
 use async_trait::async_trait;
 use command_group::{AsyncCommandGroup, AsyncGroupChild};
 use futures::future::Either;
@@ -91,7 +90,7 @@ impl AsyncObjectiveFunction for ObjFuncProcessDef {
     async fn evaluate(
         &self,
         value: serde_json::Value,
-        abort_sig_rx: async_channel::Receiver<()>,
+        mut abort_sig_rx: async_broadcast::Receiver<()>,
         seed: u64,
     ) -> Result<Option<f64>, Error> {
         let json_arg: OsString = serde_json::to_string(&value).unwrap().into();
