@@ -70,12 +70,15 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
 
     pushed_for_eval_count += initial_num_individuals;
 
+    let mut error_recording = None;
+
     loop {
         tokio::select! {
             evaled_individual = &mut evaled_individuals.try_next() => {
-                match evaled_individual? {
-                    None => break,
-                    Some(evaled_individual) => {
+                match evaled_individual {
+
+                    Ok(None) => break,
+                    Ok(Some(evaled_individual)) => {
 
                         let detailed_report_item = DetailedReportItem {
                             individual_id: evaled_individual.ind_ctx.id,
@@ -119,15 +122,26 @@ pub async fn start_controller<F: AsyncObjectiveFunction>(
                             pushed_for_eval_count += 1;
                         }
                     }
+                    Err(error) => {
+                        if !abort_signal_received {
+                            abort_signal_received = true;
+                            abort_signal_sender.broadcast(()).await.unwrap();
+                            error_recording = Some(error);
+                        }
+                    }
                 }
             }
             _ = &mut in_abort_signal_recv => {
                 if !abort_signal_received {
                     abort_signal_received = true;
-                    abort_signal_sender.broadcast(()).await.ok();
+                    abort_signal_sender.broadcast(()).await.unwrap();
                 }
             }
         }
+    }
+
+    if let Some(error) = error_recording {
+        return Err(error);
     }
 
     info!("Processing completed");
