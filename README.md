@@ -42,10 +42,14 @@ y:
 `scale` represents the order of magnitude of variation. It can be thought of as something similar to the standard deviation of the result when the value is mutated. It is merely a hint to the mutation logic and can be provided by the user intuitively.
 
 
-Our objective function program can be written in any programming language. Here we choose Python. Cambrian will call the program as a child process and pass the parameters in form of a JSON as the last argument. If our script was called `obj_func.py`, then cambrian would start it with a call equivalent to the following command:
+Our objective function program can be written in any programming language. Here we choose Python. Cambrian will call the program as a child process and pass the following arguments:
+- the parameters in form of a JSON
+- a unique number which may be used as a seed to initialize a random generator
+
+If our script was called `obj_func.py`, then cambrian would start it with a call like the following command:
 
 ```
-python obj_func.py '{"x":1.0,"y":1.0}'
+python obj_func.py '{"x":1.0,"y":1.0}' 1234
 ```
 
 and it would expect the program to print a line in the following format to the standard output:
@@ -54,7 +58,7 @@ and it would expect the program to print a line in the following format to the s
 {"objFuncVal": 2.0}
 ```
 
-The script `obj_func.py` itself could look like this:
+The script `obj_func.py` itself could look like this (the seed is ignored in this case):
 
 ```
 import sys
@@ -108,9 +112,9 @@ cargo install cambrian
 ```
 
 #### Download from GitHub
-Go to [releases](https://github.com/ssgier/cambrian/releases) and download the latest archive (cambrian-v0.2.1-x86_64-unknown-linux-musl.tar.gz). Extract it:
+Go to [releases](https://github.com/ssgier/cambrian/releases) and download the latest archive (cambrian-v0.2.2-x86_64-unknown-linux-musl.tar.gz). Extract it:
 ```
-tar xvzf cambrian-v0.2.1-x86_64-unknown-linux-musl.tar.gz
+tar xvzf cambrian-v0.2.2-x86_64-unknown-linux-musl.tar.gz
 ```
 This will extract a directory containing the cambrian executable. Place the executable in a directory of choice and optionally add that directory to the PATH environment variable.
 
