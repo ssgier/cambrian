@@ -108,9 +108,9 @@ cargo install cambrian
 ```
 
 #### Download from GitHub
-Go to [releases](https://github.com/ssgier/cambrian/releases) and download the latest archive (cambrian-v0.2.0-x86_64-unknown-linux-musl.tar.gz). Extract it:
+Go to [releases](https://github.com/ssgier/cambrian/releases) and download the latest archive (cambrian-v0.2.1-x86_64-unknown-linux-musl.tar.gz). Extract it:
 ```
-tar xvzf cambrian-v0.2.0-x86_64-unknown-linux-musl.tar.gz
+tar xvzf cambrian-v0.2.1-x86_64-unknown-linux-musl.tar.gz
 ```
 This will extract a directory containing the cambrian executable. Place the executable in a directory of choice and optionally add that directory to the PATH environment variable.
 
