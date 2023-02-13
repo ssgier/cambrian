@@ -76,6 +76,9 @@ impl AlgoContext {
         static_params: StaticParams,
     ) -> Self {
         let initial_value = explicit_init_value.unwrap_or_else(|| spec.initial_value());
+
+        info!("Starting with initial value: {}", initial_value.to_json());
+
         let mut path_ctx = PathContext::default();
         path_ctx.add_nodes_for(&initial_value);
 
