@@ -59,6 +59,7 @@ pub trait AsyncObjectiveFunction: Sync {
         value: serde_json::Value,
         abort_signal_recv: Receiver<()>,
         seed: u64,
+        individual_id: usize,
     ) -> Result<Option<f64>, Error>;
 }
 

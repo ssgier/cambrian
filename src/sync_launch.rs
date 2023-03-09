@@ -232,6 +232,7 @@ where
         value: serde_json::Value,
         mut abort_sig_recv: async_broadcast::Receiver<()>,
         _seed: u64,
+        _individual_id: usize,
     ) -> Result<Option<f64>, Error> {
         let obj_func = self.obj_func.clone();
 

@@ -28,7 +28,7 @@ pub fn is_leaf(spec_node: &Node) -> bool {
     }
 }
 
-const BUILT_IN_TYPE_NAMES: &'static [&'static str] = &[
+const BUILT_IN_TYPE_NAMES: &[&str] = &[
     "real", "int", "bool", "sub", "anon map", "variant", "enum", "optional", "const",
 ];
 

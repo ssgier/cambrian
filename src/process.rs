@@ -3,7 +3,7 @@ use crate::{error::Error, meta::AsyncObjectiveFunction};
 use async_trait::async_trait;
 use command_group::{AsyncCommandGroup, AsyncGroupChild};
 use futures::future::Either;
-use log::trace;
+use log::{info, trace};
 use nix::errno::Errno;
 use nix::sys::signal::{self, Signal};
 use nix::sys::wait;
@@ -60,8 +60,17 @@ async fn get_child_result(
     child: AsyncGroupChild,
     obj_func_arg: &OsStr,
     seed: u64,
+    individual_id: usize,
 ) -> Result<Option<f64>, Error> {
     let output = child.wait_with_output().await?;
+
+    if !output.stderr.is_empty() {
+        info!(
+            "Individual {}: non-empty stderr: {}",
+            individual_id,
+            String::from_utf8(output.stderr.clone()).unwrap()
+        );
+    }
 
     if output.status.success() {
         let result: ObjFuncChildResult = serde_json::from_slice(&output.stdout).map_err(|_| {
@@ -92,6 +101,7 @@ impl AsyncObjectiveFunction for ObjFuncProcessDef {
         value: serde_json::Value,
         mut abort_sig_rx: async_broadcast::Receiver<()>,
         seed: u64,
+        individual_id: usize,
     ) -> Result<Option<f64>, Error> {
         let json_arg: OsString = serde_json::to_string(&value).unwrap().into();
         let child = Command::new(&self.program)
@@ -105,7 +115,7 @@ impl AsyncObjectiveFunction for ObjFuncProcessDef {
 
         let unreaped_pgid = child.id().map(|pgid| Pid::from_raw(pgid as i32));
 
-        let child_result = get_child_result(child, &json_arg, seed);
+        let child_result = get_child_result(child, &json_arg, seed, individual_id);
 
         let mut timeout_fut = if let Some(kill_after_duration) = self.kill_obj_func_after {
             let timeout_fut = Box::pin(tokio::time::sleep(kill_after_duration));

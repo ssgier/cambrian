@@ -77,8 +77,6 @@ fn init_logger(args: &Args) {
 
     env_logger::Builder::new()
         .filter_level(level_filter)
-        .format_timestamp(None)
-        .format_level(false)
         .format_module_path(false)
         .format_target(false)
         .init();
@@ -172,7 +170,7 @@ fn process_report(report: FinalReport, out_dir: &Option<PathBuf>) -> Result<()> 
 
 fn write_file(path: &PathBuf, descr: &str, content: &[u8]) -> Result<()> {
     info!("Writing {} to file: {}", descr, path.display());
-    fs::write(&path, content).with_context(|| format!("Unable to write {} file", descr))
+    fs::write(path, content).with_context(|| format!("Unable to write {} file", descr))
 }
 
 fn dump_diagnostic_files(

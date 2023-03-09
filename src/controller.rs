@@ -174,7 +174,12 @@ async fn evaluate_individual<F: AsyncObjectiveFunction>(
     let start_time = Instant::now();
 
     let eval_result = obj_func
-        .evaluate(individual.value.to_json(), abort_signal_recv, seed)
+        .evaluate(
+            individual.value.to_json(),
+            abort_signal_recv,
+            seed,
+            individual.id,
+        )
         .await?;
 
     let eval_time = start_time.elapsed();

@@ -14,9 +14,7 @@ fn rescale(value: f64, rng: &mut StdRng) -> f64 {
     let factor = 10.0f64.powf(exponent);
 
     value
-        * factor
-            .max(META_PARAMS_MUTATION_RESCALE_FLOOR)
-            .min(META_PARAMS_MUTATION_RESCALE_CEIL)
+        * factor.clamp(META_PARAMS_MUTATION_RESCALE_FLOOR, META_PARAMS_MUTATION_RESCALE_CEIL)
 }
 
 fn rescale_prob(prob: f64, rng: &mut StdRng) -> f64 {
