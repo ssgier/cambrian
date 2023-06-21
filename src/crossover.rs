@@ -145,6 +145,14 @@ where
                         path_node_ctx,
                         rng,
                     ),
+                    spec::Node::Array { value_type, size } => self.crossover_array(
+                        value_type,
+                        *size,
+                        individuals_ordered,
+                        crossover_params,
+                        path_node_ctx,
+                        rng,
+                    ),
                     spec::Node::AnonMap {
                         value_type,
                         min_size,
@@ -284,6 +292,52 @@ where
         }
 
         selected_keys
+    }
+
+    fn crossover_array(
+        &self,
+        value_type: &spec::Node,
+        size: usize,
+        individuals_ordered: &[&value::Node],
+        crossover_params: &CrossoverParams,
+        path_node_ctx: &mut PathNodeContext,
+        rng: &mut StdRng,
+    ) -> value::Node {
+        let inner_vectors = individuals_ordered
+            .iter()
+            .map(|individual| {
+                extract_inner_vector_from_array(individual)
+                    .iter()
+                    .map(AsRef::as_ref)
+                    .collect_vec()
+            })
+            .collect_vec();
+
+        let result_elements = (0..size)
+            .map(|idx| {
+                let child_values = inner_vectors
+                    .iter()
+                    .map(|inner_vector| inner_vector[idx])
+                    .collect_vec();
+
+                let child_path_node_ctx = path_node_ctx.get_or_create_child_mut(&idx.to_string());
+
+                let child_crossover_params = child_path_node_ctx
+                    .rescaling_ctx
+                    .current_rescaling
+                    .rescale_crossover(crossover_params);
+
+                Box::new(self.do_crossover(
+                    value_type,
+                    &child_values,
+                    &child_crossover_params,
+                    child_path_node_ctx,
+                    rng,
+                ))
+            })
+            .collect();
+
+        value::Node::Array(result_elements)
     }
 
     fn crossover_anon_map(
@@ -498,6 +552,14 @@ pub struct Crossover<S: Selection = SelectionImpl> {
     selection: S,
 }
 
+fn extract_inner_vector_from_array(value: &value::Node) -> &[Box<value::Node>] {
+    if let value::Node::Array(elements) = value {
+        elements
+    } else {
+        unreachable!()
+    }
+}
+
 fn extract_anon_map_inner(value: &value::Node) -> &HashMap<usize, Box<value::Node>> {
     if let value::Node::AnonMap(mapping) = value {
         mapping
@@ -512,6 +574,7 @@ mod tests {
     use crate::path::testutil::set_rescaling_at_path;
     use crate::rescaling::{CrossoverRescaling, MutationRescaling, Rescaling};
     use crate::spec_util;
+    use crate::testutil::extract_as_bool;
     use crate::testutil::extract_from_value;
     use crate::types::HashSet;
     use rand::SeedableRng;
@@ -1201,6 +1264,60 @@ mod tests {
         } else {
             unreachable!();
         }
+    }
+
+    #[test]
+    fn array_crossover() {
+        let spec_str = "
+        type: array
+        size: 2
+        valueType:
+            type: bool
+            init: true
+        ";
+
+        let value0 = Value(value::Node::Array(vec![
+            Box::new(value::Node::Bool(false)),
+            Box::new(value::Node::Bool(false)),
+        ]));
+
+        let value1 = Value(value::Node::Array(vec![
+            Box::new(value::Node::Bool(true)),
+            Box::new(value::Node::Bool(true)),
+        ]));
+
+        let spec = spec_util::from_yaml_str(spec_str).unwrap();
+
+        let mut root_path_node_ctx = PathNodeContext::default();
+        root_path_node_ctx.add_nodes_for(&value0.0);
+        root_path_node_ctx.add_nodes_for(&value1.0);
+
+        set_rescaling_at_path(
+            &mut root_path_node_ctx,
+            &["0"],
+            make_rescaling(1.0, SELECT_1),
+        );
+
+        set_rescaling_at_path(
+            &mut root_path_node_ctx,
+            &["1"],
+            make_rescaling(1.0, SELECT_0),
+        );
+        let sut = make_crossover_with_pressure_aware_selection();
+
+        let result = sut.crossover(
+            &spec,
+            &[&value0, &value1],
+            &ALWAYS_CROSSOVER_PARAMS,
+            &mut PathContext(root_path_node_ctx),
+            &mut make_rng(),
+        );
+
+        let value0 = extract_as_bool(&result, &["0"]).unwrap();
+        let value1 = extract_as_bool(&result, &["1"]).unwrap();
+
+        assert!(value0);
+        assert!(!value1);
     }
 
     #[test]

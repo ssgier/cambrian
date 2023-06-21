@@ -44,6 +44,8 @@ pub enum Error {
     InvalidBounds { path_hint: String },
     #[error("at path {path_hint:?}: min size must be lower than max size")]
     InvalidSizeBounds { path_hint: String },
+    #[error("at path {path_hint:?}: array size must be strictly greater than 1")]
+    ArraySize { path_hint: String },
     #[error("at path {path_hint:?}: max size must not be zero")]
     ZeroMaxSize { path_hint: String },
     #[error("at path {path_hint:?}: mandatory attribute missing: {}", .missing_attribute_name)]

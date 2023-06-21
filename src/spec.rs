@@ -2,6 +2,7 @@ use crate::types::HashMap;
 use crate::value;
 use crate::value::Value;
 use serde::{Deserialize, Serialize};
+use std::iter;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Spec(pub Node);
@@ -25,6 +26,10 @@ pub enum Node {
     },
     Sub {
         map: HashMap<String, Box<Node>>,
+    },
+    Array {
+        value_type: Box<Node>,
+        size: usize,
     },
     AnonMap {
         value_type: Box<Node>,
@@ -59,6 +64,15 @@ impl Node {
             Node::Real { init, .. } => value::Node::Real(*init),
             Node::Int { init, .. } => value::Node::Int(*init),
             Node::Bool { init } => value::Node::Bool(*init),
+            Node::Array { value_type, size } => {
+                let init_val = value_type.initial_value();
+
+                value::Node::Array(
+                    iter::repeat_with(|| Box::new(init_val.clone()))
+                        .take(*size)
+                        .collect(),
+                )
+            }
             Node::AnonMap {
                 value_type,
                 init_size,
@@ -142,6 +156,12 @@ mod tests {
             bar:
                 type: bool
                 init: false
+        e:
+            type: array
+            size: 2
+            valueType:
+                type: bool
+                init: true
         ";
 
         let expected_init_val = Value(Node::Sub(HashMap::from_iter([
@@ -157,6 +177,13 @@ mod tests {
             (
                 "d".to_string(),
                 Box::new(Node::Variant("foo".to_string(), Box::new(Node::Const))),
+            ),
+            (
+                "e".to_string(),
+                Box::new(Node::Array(vec![
+                    Box::new(Node::Bool(true)),
+                    Box::new(Node::Bool(true)),
+                ])),
             ),
         ])));
 

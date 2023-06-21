@@ -5,7 +5,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 // not constant across targets
-const CHECKSUM: u64 = 15057406331161146692;
+const CHECKSUM: u64 = 16590185745624415069;
 
 fn compute_hash(value: &serde_json::Value) -> u64 {
     let mut hasher = DefaultHasher::new();
@@ -55,6 +55,13 @@ fn checksum() {
                 init: false
           baz:
             type: const
+    arr:
+        type: array
+        size: 2
+        valueType:
+            type: int
+            init: 2
+            scale: 4
     ";
 
     let spec = spec_util::from_yaml_str(spec_str).unwrap();

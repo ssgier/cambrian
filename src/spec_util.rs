@@ -17,9 +17,11 @@ pub fn from_yaml_str(yaml_str: &str) -> Result<Spec, Error> {
 
 pub fn is_leaf(spec_node: &Node) -> bool {
     match spec_node {
-        Node::Sub { .. } | Node::AnonMap { .. } | Node::Variant { .. } | Node::Optional { .. } => {
-            false
-        }
+        Node::Sub { .. }
+        | Node::Array { .. }
+        | Node::AnonMap { .. }
+        | Node::Variant { .. }
+        | Node::Optional { .. } => false,
         Node::Bool { .. }
         | Node::Real { .. }
         | Node::Int { .. }
@@ -29,7 +31,7 @@ pub fn is_leaf(spec_node: &Node) -> bool {
 }
 
 const BUILT_IN_TYPE_NAMES: &[&str] = &[
-    "real", "int", "bool", "sub", "anon map", "variant", "enum", "optional", "const",
+    "real", "int", "bool", "sub", "array", "anon map", "variant", "enum", "optional", "const",
 ];
 
 fn build_node(
@@ -54,6 +56,7 @@ fn build_node(
         "int" => build_int(mapping, path),
         "bool" => build_bool(mapping, path),
         "sub" => build_sub(mapping, type_defs, path),
+        "array" => build_array(mapping, type_defs, path),
         "anon map" => build_anon_map(mapping, type_defs, path),
         "variant" => build_variant(mapping, type_defs, path),
         "enum" => build_enum(mapping, path),
@@ -273,15 +276,33 @@ fn extract_value_type_attr_value(
     type_defs: &HashMap<String, Node>,
     path: &[&str],
 ) -> Result<Box<Node>, Error> {
-    return match mapping.get("valueType") {
+    match mapping.get("valueType") {
         Some(value) => Ok(Box::new(build_node(value, type_defs, path)?)),
-        None => {
-            return Err(Error::MandatoryAttributeMissing {
-                path_hint: format_path(path),
-                missing_attribute_name: "valueType".to_string(),
-            });
-        }
-    };
+        None => Err(Error::MandatoryAttributeMissing {
+            path_hint: format_path(path),
+            missing_attribute_name: "valueType".to_string(),
+        }),
+    }
+}
+
+fn build_array(
+    mapping: &serde_yaml::Mapping,
+    type_defs: &HashMap<String, Node>,
+    path: &[&str],
+) -> Result<Node, Error> {
+    check_for_unexpected_attributes(mapping, ["type", "size", "valueType"], path)?;
+
+    let value_type = extract_value_type_attr_value(mapping, type_defs, path)?;
+
+    let size = extract_usize_attribute_value(mapping, "size", path, true)?.unwrap();
+
+    if size < 2 {
+        Err(Error::ArraySize {
+            path_hint: format_path(path),
+        })
+    } else {
+        Ok(Node::Array { value_type, size })
+    }
 }
 
 fn build_anon_map(
@@ -946,6 +967,72 @@ mod tests {
             Err(Error::EmptySub {
                 path_hint
             }) if path_hint == "(root)"
+        ));
+    }
+
+    #[test]
+    fn array() {
+        let yaml_str = "
+        type: array
+        valueType:
+            type: bool
+            init: false
+        size: 2
+        ";
+
+        assert!(matches!(
+            from_yaml_str(yaml_str),
+            Ok(Spec(Node::Array {
+                value_type,
+                size: 2,
+            })) if *value_type.as_ref() == Node::Bool {init: false}
+        ));
+    }
+
+    #[test]
+    fn array_zero_size() {
+        let yaml_str = "
+        type: array
+        valueType:
+            type: bool
+            init: false
+        size: 1
+        ";
+
+        assert!(matches!(
+        from_yaml_str(yaml_str),
+            Err(Error::ArraySize { path_hint })
+            if path_hint == "(root)"
+        ));
+    }
+
+    #[test]
+    fn array_missing_value_type() {
+        let yaml_str = "
+        type: array
+        size: 4
+        ";
+
+        assert!(matches!(
+        from_yaml_str(yaml_str),
+            Err(Error::MandatoryAttributeMissing { path_hint, missing_attribute_name })
+            if path_hint == "(root)" && missing_attribute_name == "valueType"
+        ));
+    }
+
+    #[test]
+    fn array_missing_size() {
+        let yaml_str = "
+        type: array
+        valueType:
+            type: bool
+            init: false
+        ";
+
+        assert!(matches!(
+        from_yaml_str(yaml_str),
+            Err(Error::MandatoryAttributeMissing { path_hint, missing_attribute_name })
+            if path_hint == "(root)" && missing_attribute_name == "size"
         ));
     }
 

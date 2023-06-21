@@ -1,7 +1,7 @@
 use crate::rescaling::RescalingContext;
+use crate::types::HashMap;
 use crate::value;
 use crate::value::Node::*;
-use crate::types::HashMap;
 
 #[derive(Default)]
 pub struct PathContext(pub PathNodeContext);
@@ -42,6 +42,12 @@ impl PathNodeContext {
             Sub(mapping) => {
                 for (key, value) in mapping {
                     let child_node = self.child_nodes.entry(key.clone()).or_default();
+                    child_node.add_nodes_for(value);
+                }
+            }
+            Array(elemengs) => {
+                for (idx, value) in elemengs.iter().enumerate() {
+                    let child_node = self.child_nodes.entry(idx.to_string()).or_default();
                     child_node.add_nodes_for(value);
                 }
             }
@@ -116,6 +122,13 @@ mod tests {
                 Box::new(value::Node::Enum("foo".to_string())),
             ),
             (
+                "arr".to_string(),
+                Box::new(value::Node::Array(vec![
+                    Box::new(value::Node::Bool(true)),
+                    Box::new(value::Node::Bool(false)),
+                ])),
+            ),
+            (
                 "foo".to_string(),
                 Box::new(value::Node::AnonMap(HashMap::from_iter([(
                     4,
@@ -140,11 +153,18 @@ mod tests {
         let mut sut = PathNodeContext::default();
         sut.add_nodes_for(&value.0);
 
-        assert_eq!(sut.child_nodes.len(), 7);
+        assert_eq!(sut.child_nodes.len(), 8);
         for key in ["a", "b", "c", "d"] {
             let node = sut.get_child(key);
             assert!(node.child_nodes.is_empty());
         }
+
+        let arr = sut.get_child("arr");
+        assert_eq!(arr.child_nodes.len(), 2);
+        let arr_child_0 = arr.get_child("0");
+        let arr_child_1 = arr.get_child("1");
+        assert!(arr_child_0.child_nodes.is_empty());
+        assert!(arr_child_1.child_nodes.is_empty());
 
         let foo = sut.get_child("foo");
         assert_eq!(foo.child_nodes.len(), 1);

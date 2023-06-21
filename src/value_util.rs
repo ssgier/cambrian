@@ -25,6 +25,7 @@ fn build_node(
         spec::Node::Int { min, max, .. } => build_int(json_val, min, max, path),
         spec::Node::Bool { .. } => build_bool(json_val, path),
         spec::Node::Sub { map: ref spec_map } => build_sub(json_val, spec_map, path),
+        spec::Node::Array { ref value_type, .. } => build_array(json_val, value_type, path),
         spec::Node::AnonMap { ref value_type, .. } => build_anon_map(json_val, value_type, path),
         spec::Node::Variant {
             map: ref spec_map, ..
@@ -157,6 +158,31 @@ fn build_sub(
         _ => Err(Error::WrongTypeForValue {
             path_hint: format_path(path),
             type_hint: "map".to_string(),
+        }),
+    }
+}
+
+fn build_array(
+    json_val: &serde_json::Value,
+    spec_node: &spec::Node,
+    path: &[&str],
+) -> Result<Node, Error> {
+    match json_val {
+        serde_json::Value::Array(json_values) => {
+            let mut elements = Vec::with_capacity(json_values.len());
+
+            for (idx, json_value) in json_values.iter().enumerate() {
+                let path_item = idx.to_string();
+                let path_of_sub = [path, &[&path_item]].concat();
+                let value = build_node(json_value, spec_node, &path_of_sub)?;
+                elements.push(Box::new(value));
+            }
+
+            Ok(Node::Array(elements))
+        }
+        _ => Err(Error::WrongTypeForValue {
+            path_hint: format_path(path),
+            type_hint: "array".to_string(),
         }),
     }
 }
@@ -865,6 +891,31 @@ mod tests {
         assert!(matches!(result,
                      Err(Error::MandatoryValueMissing { path_hint })
                      if path_hint.as_str() == "foo"));
+    }
+
+    #[test]
+    fn array() {
+        let spec_str = "
+        type: array
+        size: 2
+        valueType:
+            type: bool
+            init: false
+        ";
+        let value_str = "
+        [true, true]
+        ";
+
+        let spec = spec_util::from_yaml_str(spec_str).unwrap();
+        let result = from_json_str(value_str, &spec);
+
+        assert_eq!(
+            result.unwrap(),
+            Value(Node::Array(vec![
+                Box::new(Node::Bool(true)),
+                Box::new(Node::Bool(true))
+            ]))
+        );
     }
 
     #[test]

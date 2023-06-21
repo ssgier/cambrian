@@ -68,6 +68,9 @@ fn do_mutate(
         (spec::Node::Sub { map, .. }, value::Node::Sub(value_map)) => {
             mutate_sub(map, value_map, mutation_params, path_node_ctx, rng)
         }
+        (spec::Node::Array { value_type, .. }, value::Node::Array(elements)) => {
+            mutate_array(value_type, elements, mutation_params, path_node_ctx, rng)
+        }
         (
             spec::Node::AnonMap {
                 value_type,
@@ -149,6 +152,36 @@ fn mutate_sub(
 
 lazy_static! {
     static ref COIN_FLIP: Bernoulli = Bernoulli::new(0.5).unwrap();
+}
+
+fn mutate_array(
+    value_type: &spec::Node,
+    elements: &[Box<value::Node>],
+    mutation_params: &MutationParams,
+    path_node_ctx: &mut PathNodeContext,
+    rng: &mut StdRng,
+) -> value::Node {
+    let result_elements = elements
+        .iter()
+        .enumerate()
+        .map(|(idx, element)| {
+            let child_path_node_ctx = path_node_ctx.get_or_create_child_mut(&idx.to_string());
+            let child_mutation_params = child_path_node_ctx
+                .rescaling_ctx
+                .current_rescaling
+                .rescale_mutation(mutation_params);
+
+            Box::new(do_mutate(
+                element,
+                value_type,
+                &child_mutation_params,
+                child_path_node_ctx,
+                rng,
+            ))
+        })
+        .collect();
+
+    value::Node::Array(result_elements)
 }
 
 fn mutate_anon_map(
@@ -450,6 +483,7 @@ mod tests {
     use crate::rescaling::Rescaling;
     use crate::spec_util;
     use crate::testutil::extract_as_anon_map;
+    use crate::testutil::extract_as_array;
     use crate::testutil::extract_as_bool;
     use crate::testutil::extract_as_int;
     use crate::types::HashSet;
@@ -1052,6 +1086,44 @@ mod tests {
         assert!(extract_as_int(&result, &["int_c"]).is_some());
 
         assert!(!extract_as_bool(&result, &["bool_a"]).unwrap());
+    }
+
+    #[test]
+    fn mutate_array() {
+        let spec_str = "
+        type: array
+        valueType:
+            type: bool
+            init: false
+        size: 2
+        ";
+
+        let value_str = r#"
+        [false, false]
+        "#;
+
+        let spec = spec_util::from_yaml_str(spec_str).unwrap();
+        let value = value_util::from_json_str(value_str, &spec).unwrap();
+
+        let mutation_params = MutationParams {
+            mutation_prob: 1.0,
+            mutation_scale: 10.0,
+        };
+
+        let mut rng = rng();
+        let mut path_ctx = PathContext::default();
+        path_ctx.0.add_nodes_for(&value.0);
+
+        let rescaling = never_mutate_rescaling();
+        set_rescaling_at_path(&mut path_ctx.0, &["1"], rescaling);
+        let result = mutate(&spec, &value, &mutation_params, &mut path_ctx, &mut rng);
+
+        let result_elements = extract_as_array(&result, &[]).unwrap();
+
+        assert_eq!(result_elements.len(), 2);
+
+        assert_eq!(result_elements[0], value::Node::Bool(true));
+        assert_eq!(result_elements[1], value::Node::Bool(false));
     }
 
     #[test]
