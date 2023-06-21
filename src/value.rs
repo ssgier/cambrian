@@ -13,6 +13,7 @@ pub enum Node {
     Int(i64),
     Bool(bool),
     Sub(HashMap<String, Box<Node>>),
+    Array(Vec<Box<Node>>),
     AnonMap(HashMap<usize, Box<Node>>),
     Variant(String, Box<Node>),
     Enum(String),
@@ -32,6 +33,7 @@ impl Node {
             Node::Real(number) => serde_json::Value::Number(Number::from_f64(*number).unwrap()),
             Node::Int(number) => serde_json::Value::Number(Number::from(*number)),
             Node::Bool(val) => serde_json::Value::Bool(*val),
+            Node::Array(elements) => Self::map_to_json_array(elements),
             Node::AnonMap(mapping) => Self::map_to_json_obj(mapping),
             Node::Sub(mapping) => Self::map_to_json_obj(mapping),
             Node::Variant(variant_name, value) => {
@@ -59,6 +61,10 @@ impl Node {
         }
         serde_json::Value::Object(out_mapping)
     }
+
+    fn map_to_json_array(elements: &[Box<Node>]) -> serde_json::Value {
+        serde_json::Value::Array(elements.iter().map(|elem| elem.to_json()).collect())
+    }
 }
 
 #[cfg(test)]
@@ -79,9 +85,16 @@ mod tests {
                     Box::new(Node::Bool(true)),
                 )]))),
             ),
+            (
+                "d".to_string(),
+                Box::new(Node::Array(vec![
+                    Box::new(Node::Int(1)),
+                    Box::new(Node::Int(3)),
+                ])),
+            ),
         ])));
 
-        let expect_json_text = r#"{"a":2.0,"b":1,"c":{"0":true}}"#;
+        let expect_json_text = r#"{"a":2.0,"b":1,"c":{"0":true},"d":[1,3]}"#;
         assert_eq!(value.to_json().to_string(), expect_json_text);
     }
 }
