@@ -291,8 +291,8 @@ fn build_array(
     path: &[&str],
 ) -> Result<Node, Error> {
     check_for_unexpected_attributes(mapping, ["type", "size", "valueType"], path)?;
-
-    let value_type = extract_value_type_attr_value(mapping, type_defs, path)?;
+    let sub_path = [path, &["array"]].concat();
+    let value_type = extract_value_type_attr_value(mapping, type_defs, &sub_path)?;
 
     let size = extract_usize_attribute_value(mapping, "size", path, true)?.unwrap();
 
@@ -316,7 +316,8 @@ fn build_anon_map(
         path,
     )?;
 
-    let value_type = extract_value_type_attr_value(mapping, type_defs, path)?;
+    let sub_path = [path, &["anon_map"]].concat();
+    let value_type = extract_value_type_attr_value(mapping, type_defs, &sub_path)?;
 
     let min_size = extract_usize_attribute_value(mapping, "minSize", path, false)?;
     let max_size = extract_usize_attribute_value(mapping, "maxSize", path, false)?;
@@ -1016,7 +1017,7 @@ mod tests {
         assert!(matches!(
         from_yaml_str(yaml_str),
             Err(Error::MandatoryAttributeMissing { path_hint, missing_attribute_name })
-            if path_hint == "(root)" && missing_attribute_name == "valueType"
+            if path_hint == "array" && missing_attribute_name == "valueType"
         ));
     }
 
@@ -1106,7 +1107,7 @@ mod tests {
         assert!(matches!(
         from_yaml_str(yaml_str),
             Err(Error::MandatoryAttributeMissing { path_hint, missing_attribute_name })
-            if path_hint == "(root)" && missing_attribute_name == "valueType"
+            if path_hint == "anon_map" && missing_attribute_name == "valueType"
         ));
     }
 
